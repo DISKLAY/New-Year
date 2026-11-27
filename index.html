@@ -204,7 +204,8 @@ function renderRazdacha(){
   const res = people.filter(p =>
       p.full_name.toLowerCase().includes(q) ||
       (p.phone && p.phone.includes(q)) ||
-      (p.member_number && p.member_number.toLowerCase().includes(q)))
+      (p.member_number && p.member_number.toLowerCase().includes(q)) ||
+      (p.comment && p.comment.toLowerCase().includes(q)))
     .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru')).slice(0,40);
   html += `<div class="list">`;
   if (!res.length) html += `<div class="empty">Нет в списке.<br>Только члены профсоюза из списка могут получить подарок.</div>`;
@@ -245,13 +246,14 @@ function renderPodarki(){
 function renderLyudi(){
   let html = `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Поиск по людям…" autocomplete="off"></div><div class="list">`;
   const q = searchQ.trim().toLowerCase();
-  const list = (q ? people.filter(p=>p.full_name.toLowerCase().includes(q)||(p.phone&&p.phone.includes(q))) : people)
+  const list = (q ? people.filter(p=>p.full_name.toLowerCase().includes(q)||(p.phone&&p.phone.includes(q))||(p.comment&&p.comment.toLowerCase().includes(q))) : people)
     .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru'));
   if (!people.length) html += `<div class="empty">Список пуст. Загрузите во вкладке «Импорт».</div>`;
   for (const p of list.slice(0,200)){
     const h = personHandout(p.id);
     const badge = p.received?`<span class="badge b-ok">✓ ${esc(h?h.gift_name:'')}</span>`:`<span class="badge b-no">не выдано</span>`;
-    html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}</div>${badge}</div>`;
+    const sub = [p.phone, p.comment].filter(Boolean).map(esc).join(' · ');
+    html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}${sub?`<div class="sub">${sub}</div>`:''}</div>${badge}</div>`;
   }
   html += `</div>`;
   $('#view').innerHTML = html; bindSearch();
@@ -337,18 +339,28 @@ function openPerson(pid){
     <button class="close" id="x">×</button>
     <h2>${esc(p.full_name)}</h2>
     ${p.phone?`<div class="kv">тел.: <b>${esc(p.phone)}</b></div>`:''}
-    ${body}</div></div>`;
+    ${body}
+    <div class="sec" style="margin-top:12px;box-shadow:none;border:1px solid var(--line)">
+      <div class="lbl">Телефон</div>
+      <input class="t" id="ephone" value="${esc(p.phone||'')}" placeholder="дозаписать телефон">
+      <div class="lbl" style="margin-top:8px">Комментарий (тег Telegram, примечание)</div>
+      <input class="t" id="ecomment" value="${esc(p.comment||'')}" placeholder="@username, примечание…">
+      <button class="btn ghost mt" id="savep">Сохранить</button>
+    </div>
+  </div></div>`;
   $('#x').onclick = closeModal;
   $('#ov').onclick = e=>{ if(e.target.id==='ov') closeModal(); };
   if (p.received && h){ $('#undo').onclick = ()=>undoHandout(h.id); }
   else {
     $('#modal').querySelectorAll('.gift').forEach(c=>c.onclick=()=>{
-      selectedGift = c.dataset.g; openPerson(pid);
+      selectedGift = c.dataset.g;
+      $('#modal').querySelectorAll('.gift').forEach(x=>x.classList.toggle('sel', x.dataset.g===selectedGift));
       const btn = $('#give'); btn.disabled=false; btn.textContent='Выдать: '+selectedGift;
     });
     const give = $('#give');
     if (give) give.onclick = ()=> selectedGift && giveGift(p, selectedGift);
   }
+  $('#savep').onclick = ()=>savePerson(pid);
 }
 function closeModal(){ $('#modal').innerHTML=''; selectedPersonId=null; selectedGift=null; }
 
@@ -365,6 +377,13 @@ async function undoHandout(id){
   try{ await rpc('unassign_handout', {p_handout_id:id}); toast('Выдача отменена'); }
   catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
   closeModal(); await loadAll();
+}
+async function savePerson(pid){
+  const phone = $('#ephone').value.trim()||null;
+  const comment = $('#ecomment').value.trim()||null;
+  try{ const {error}=await sb.from('people').update({phone, comment}).eq('id', pid); if(error) throw error; toast('Сохранено'); }
+  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  await loadAll();
 }
 
 /* ---------- gifts summary ---------- */

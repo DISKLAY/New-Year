@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.people (
   member_number text,
   received boolean NOT NULL DEFAULT false,
   received_at timestamptz,
+  comment text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
