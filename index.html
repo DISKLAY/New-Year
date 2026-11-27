@@ -831,16 +831,20 @@ function giftTypes(){
 
 /* ---------- import / export ---------- */
 function isPhone(s){ return /^\+?\d[\d\s\-()]{5,}$/.test(s); }
-function isMember(s){ return /^\d{1,6}$/.test(s); }
+/* Номер члена профсоюза: чисто цифровой или с префиксом — Ч-001, Ч001, №42, #7, AB-12 */
+function isMember(s){ return /^(?:[A-Za-zА-Яа-яЁё]{1,3}\s*[-.–—]?\s*|№|#)?\d{1,10}$/.test(s); }
 function classifyParts(parts){
-  let full_name = null, phone = null, member = null;
+  /* Всё, что не распознано как телефон/номер, собираем в ФИО (склеиваем через пробел):
+     двойные пробелы-разделители из PDF/Excel больше не режут «Иванов   Иван» на куски. */
+  const nameParts = [];
+  let phone = null, member = null;
   for (const p of parts){
     if (!p) continue;
-    if (isPhone(p) && !phone) phone = p;
-    else if (isMember(p) && !member) member = p;
-    else if (!full_name) full_name = p;
+    if (isPhone(p) && !phone){ phone = p; continue; }
+    if (isMember(p) && !member){ member = p; continue; }
+    nameParts.push(p);
   }
-  if (full_name) full_name = normName(full_name);
+  const full_name = nameParts.length ? normName(nameParts.join(' ')) : null;
   return full_name ? {full_name, phone, member_number: member} : null;
 }
 function parsePeopleText(text){
