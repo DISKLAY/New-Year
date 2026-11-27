@@ -177,7 +177,7 @@ let people = [], gifts = [], handouts = [];
 let history = [];             // лог выдач и отмен (через get_handout_log)
 let tab = 'razdacha';
 let prevTab = 'razdacha';   // откуда пришлось уйти в Импорт (шестеренка)
-let searchQ = '';
+const searchQS = {razdacha:'', lyudi:''}; // поиск отдельно для каждой вкладки, не сбрасывается при переключении
 let podarkiQ = '';
 let logFilter = 'all';        // all | give | cancel
 let logQ = '';
@@ -204,6 +204,7 @@ function updateOperatorState(){
   const isDefault = v === 'Волонтёр';
   box.classList.toggle('warn', isDefault);
   if (tip) tip.textContent = isDefault ? 'не задано' : '';
+  fixSticky(); // подсказка «не задано» меняет высоту бокса — пересчитать отступ поиска
 }
 function initOperator(){
   const inp = $('#op-top');
@@ -385,6 +386,14 @@ function updateConn(){
     banner.classList.remove('show');
   }
   updateQueueBadge();
+  fixSticky();
+}
+/* Поиск фиксируем ровно под sticky-блоком сверху — без перекрытия и зазоров */
+function fixSticky(){
+  const top = $('.top');
+  if (!top) return;
+  const h = top.offsetHeight + 6;
+  document.querySelectorAll('.search').forEach(s => { s.style.top = h + 'px'; });
 }
 function scheduleLoad(){
   clearTimeout(loadTimer);
@@ -405,6 +414,7 @@ function render(){
   $('#s-people').textContent = `${people.filter(p=>p.received).length}/${people.length}`;
   $('#s-gifts').textContent  = `${gifts.filter(g=>g.status==='given').length}/${gifts.length}`;
   ({razdacha:renderRazdacha, podarki:renderPodarki, lyudi:renderLyudi, log:renderLog, import:renderImport}[tab])();
+  fixSticky();
 }
 
 /* простая проверка подарка по запросу: название (без учёта регистра) или слот № */
@@ -420,7 +430,7 @@ function giftHit(t, q){
    Старая версия перерендеривала весь экран на каждую букву — из-за этого
    текст «стирался», курсор прыгал, на мобильных клавиатура дёргалась. */
 function searchListHTML(){
-  const q = searchQ.trim().toLowerCase();
+  const q = searchQS.razdacha.trim().toLowerCase();
   if (!people.length) return `<div class="empty">Список участников пуст.<br>Загрузите его во вкладке «Импорт».</div>`;
   if (!q) return `<div class="hint">Начните вводить фамилию — появятся совпадения</div>`;
   const res = people.filter(p =>
@@ -444,12 +454,12 @@ function searchListHTML(){
 }
 function renderRazdacha(){
   $('#view').innerHTML =
-    `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Введите ФИО участника…" autocomplete="off" enterkeyhint="search"></div>` +
+    `<div class="search"><input id="q" value="${esc(searchQS.razdacha)}" placeholder="Введите ФИО участника…" autocomplete="off" enterkeyhint="search"></div>` +
     `<div id="list">${searchListHTML()}</div>`;
-  bindSearch();
+  bindSearch('razdacha');
 }
 function renderLyudiList(){
-  const q = searchQ.trim().toLowerCase();
+  const q = searchQS.lyudi.trim().toLowerCase();
   const list = (q ? people.filter(p=>p.full_name.toLowerCase().includes(q)||(p.phone&&p.phone.includes(q))||(p.comment&&p.comment.toLowerCase().includes(q))) : people)
     .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru'));
   if (!people.length) return `<div class="empty">Список пуст. Загрузите во вкладке «Импорт».</div>`;
@@ -465,9 +475,9 @@ function renderLyudiList(){
 }
 function renderLyudi(){
   $('#view').innerHTML =
-    `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Поиск по людям…" autocomplete="off" enterkeyhint="search"></div>` +
+    `<div class="search"><input id="q" value="${esc(searchQS.lyudi)}" placeholder="Поиск по людям…" autocomplete="off" enterkeyhint="search"></div>` +
     `<div id="list">${renderLyudiList()}</div>`;
-  bindSearch();
+  bindSearch('lyudi');
 }
 
 function podarkiTypes(){
@@ -1054,10 +1064,10 @@ async function importBackup(e){
 }
 
 /* ---------- search bind (без перерендера инпута) ---------- */
-function bindSearch(){
+function bindSearch(key){
   const inp = $('#q'); if (!inp) return;
   inp.oninput = e => {
-    searchQ = e.target.value;
+    searchQS[key] = e.target.value;
     const list = $('#list');
     if (!list) return;
     list.innerHTML = (tab === 'lyudi' ? renderLyudiList() : searchListHTML());
@@ -1077,7 +1087,6 @@ function setTab(name){
   const g = $('#gear');
   if (g) g.classList.toggle('active', name==='import');
   tab = name;
-  searchQ=''; podarkiQ='';
   render();
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
@@ -1090,6 +1099,7 @@ $('#gear').onclick = ()=>{
 /* ---------- online/offline ---------- */
 window.addEventListener('online', ()=>{ updateConn(); processQueue(); loadAll(); });
 window.addEventListener('offline', ()=>{ updateConn(); });
+window.addEventListener('resize', fixSticky);
 
 /* ---------- boot ---------- */
 (async function boot(){
