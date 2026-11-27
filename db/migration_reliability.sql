@@ -5,7 +5,8 @@
 CREATE UNIQUE INDEX IF NOT EXISTS handouts_one_per_person ON public.handouts (person_id);
 CREATE UNIQUE INDEX IF NOT EXISTS handouts_one_per_gift   ON public.handouts (gift_id);
 
--- 2. Аудит отмен: вместо DELETE пишем копию в историю
+-- 2. Аудит выдач и отмен: одна строка на выдачу. cancelled_at NULL = выдано и не отменено,
+--    при отмене на той же строке ставится cancelled_at/cancelled_by (кто и когда отменил).
 CREATE TABLE IF NOT EXISTS public.handouts_history (
   id bigint NOT NULL,
   person_id bigint NOT NULL,
@@ -14,11 +15,12 @@ CREATE TABLE IF NOT EXISTS public.handouts_history (
   person_name text NOT NULL,
   operator text,
   created_at timestamptz NOT NULL,
-  cancelled_at timestamptz NOT NULL DEFAULT now(),
+  cancelled_at timestamptz,
   cancelled_by text
 );
+CREATE INDEX IF NOT EXISTS handouts_history_time_idx ON public.handouts_history (created_at DESC);
 ALTER TABLE public.handouts_history ENABLE ROW LEVEL SECURITY;
--- anon не имеет доступа к истории вообще (только через SECURITY DEFINER функции)
+-- anon не имеет прямого доступа к истории (читает только через SECURITY DEFINER функцию get_handout_log)
 REVOKE ALL ON public.handouts_history FROM anon, authenticated;
 
 -- 3. Триггеры-стражи: received/status меняются только из функций (владелец postgres)
@@ -67,6 +69,7 @@ DECLARE
   v_person people%ROWTYPE;
   v_gift_id bigint;
   v_gift_name text;
+  v_handout_id bigint;
   v_now timestamptz := now();
 BEGIN
   IF p_person_id IS NULL OR p_gift_name IS NULL OR trim(p_gift_name) = '' THEN
@@ -95,16 +98,21 @@ BEGIN
   UPDATE gifts SET status = 'given', given_to = p_person_id, given_at = v_now WHERE id = v_gift_id;
   UPDATE people SET received = true, received_at = v_now WHERE id = v_person.id;
   INSERT INTO handouts (person_id, gift_id, gift_name, person_name, operator)
-    VALUES (v_person.id, v_gift_id, v_gift_name, v_person.full_name, p_operator);
+    VALUES (v_person.id, v_gift_id, v_gift_name, v_person.full_name, p_operator)
+    RETURNING id INTO v_handout_id;
+  -- фиксируем выдачу в истории (лог на экране «Лог»)
+  INSERT INTO handouts_history (id, person_id, gift_id, gift_name, person_name, operator, created_at)
+    VALUES (v_handout_id, v_person.id, v_gift_id, v_gift_name, v_person.full_name, p_operator, v_now);
 
   RETURN jsonb_build_object('ok', true, 'gift_id', v_gift_id, 'gift_name', v_gift_name,
     'person_name', v_person.full_name, 'given_at', v_now);
 END;
 $$;
 
--- 5. unassign_handout: блокировки, проверки, аудит вместо потери истории
+-- 5. unassign_handout: блокировки, проверки, отмена фиксируется в истории (кто и когда)
 CREATE OR REPLACE FUNCTION public.unassign_handout(
-  p_handout_id bigint
+  p_handout_id bigint,
+  p_operator text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -113,6 +121,7 @@ AS $$
 DECLARE
   v_h handouts%ROWTYPE;
   v_gift gifts%ROWTYPE;
+  v_upd int;
 BEGIN
   SELECT * INTO v_h FROM handouts WHERE id = p_handout_id FOR UPDATE;
   IF NOT FOUND THEN
@@ -126,12 +135,43 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'inconsistent_state');
   END IF;
   PERFORM 1 FROM people WHERE id = v_h.person_id FOR UPDATE;
-  INSERT INTO handouts_history (id, person_id, gift_id, gift_name, person_name, operator, created_at, cancelled_by)
-    VALUES (v_h.id, v_h.person_id, v_h.gift_id, v_h.gift_name, v_h.person_name, v_h.operator, v_h.created_at, NULL);
+  -- ставим отмену на строке самой выдачи; если строки нет (старые данные) — пишем отдельную
+  UPDATE handouts_history SET cancelled_at = now(), cancelled_by = p_operator WHERE id = v_h.id;
+  GET DIAGNOSTICS v_upd = ROW_COUNT;
+  IF v_upd = 0 THEN
+    INSERT INTO handouts_history (id, person_id, gift_id, gift_name, person_name, operator, created_at, cancelled_by)
+      VALUES (v_h.id, v_h.person_id, v_h.gift_id, v_h.gift_name, v_h.person_name, v_h.operator, v_h.created_at, p_operator);
+  END IF;
   UPDATE gifts SET status = 'available', given_to = NULL, given_at = NULL WHERE id = v_h.gift_id;
   UPDATE people SET received = false, received_at = NULL WHERE id = v_h.person_id;
   DELETE FROM handouts WHERE id = v_h.id;
   RETURN jsonb_build_object('ok', true, 'person_id', v_h.person_id, 'gift_id', v_h.gift_id);
+END;
+$$;
+
+-- 5b. get_handout_log: безопасный чтение истории выдач/отмен для экрана «Лог»
+CREATE OR REPLACE FUNCTION public.get_handout_log(
+  p_limit int DEFAULT 1000
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  r jsonb;
+BEGIN
+  SELECT jsonb_agg(jsonb_build_object(
+    'id', h.id, 'person_id', h.person_id, 'gift_id', h.gift_id,
+    'gift_name', h.gift_name, 'person_name', h.person_name,
+    'operator', h.operator, 'created_at', h.created_at,
+    'cancelled_at', h.cancelled_at, 'cancelled_by', h.cancelled_by
+  )) INTO r
+  FROM (
+    SELECT * FROM handouts_history
+    ORDER BY COALESCE(cancelled_at, created_at) DESC, created_at DESC
+    LIMIT COALESCE(p_limit, 1000)
+  ) h;
+  RETURN COALESCE(r, '[]'::jsonb);
 END;
 $$;
 
@@ -239,6 +279,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.people TO anon;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon;
 
 GRANT EXECUTE ON FUNCTION public.assign_gift(bigint, text, text) TO anon;
-GRANT EXECUTE ON FUNCTION public.unassign_handout(bigint) TO anon;
+GRANT EXECUTE ON FUNCTION public.unassign_handout(bigint, text) TO anon;
 GRANT EXECUTE ON FUNCTION public.update_person_contact(bigint, text, text) TO anon;
 GRANT EXECUTE ON FUNCTION public.restore_backup(jsonb, jsonb, jsonb) TO anon;
+GRANT EXECUTE ON FUNCTION public.get_handout_log(int) TO anon;

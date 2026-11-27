@@ -233,6 +233,8 @@ SELECT person_id, gift_id INTO ... FROM handouts WHERE id = p_handout_id FOR UPD
 -- вместо DELETE — soft-delete: cancelled_at/cancelled_by, или перенос в audit-таблицу
 ```
 
+**Применено (в текущей версии):** `unassign_handout(bigint, text)` с `FOR UPDATE` на `handouts`/`gifts`/`people`, проверкой состояния и параметром `p_operator`. История не теряется: таблица `handouts_history` теперь хранит **одну строку на выдачу** — `assign_gift` фиксирует выдачу (`cancelled_at = NULL`), `unassign_handout` ставит на той же строке `cancelled_at`/`cancelled_by`. Читать историю anon может только через `SECURITY DEFINER`-функцию `get_handout_log` (для экрана «Лог»).
+
 ### P1-7. Двойной тап по «Выдать»
 
 Кнопка не блокируется на время RPC. Двойной тап = два `assign_gift`. БД спасёт (второй получит `already_received`), но пользователь увидит два тоста и закроет модалку — путаница в очереди.

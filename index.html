@@ -89,6 +89,31 @@
     display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;cursor:pointer}
   .tab .ic{font-size:20px}
   .tab.active{color:var(--accent)}
+  /* шестерёнка: Импорт убрал из рядка вкладок в угол */
+  .gear{flex:0 0 auto;border:none;background:none;font-size:11px;font-weight:600;color:var(--muted);
+    display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 12px;cursor:pointer}
+  .gear .ic{font-size:20px}
+  .gear .gl{font-size:10px;line-height:1}
+  .gear.active{color:var(--accent)}
+  /* оператор — на видном месте, сразу видно, задано ли имя */
+  .opbox{display:flex;align-items:center;gap:8px;margin-top:8px;background:var(--card);
+    border-radius:14px;padding:8px 12px;box-shadow:var(--shadow);border:2px solid transparent}
+  .opbox.warn{background:#fdf2e0;border-color:#e0962b}
+  .op-ic{font-size:20px}
+  .op-in{flex:1;font-size:18px;font-weight:700;border:none;background:none;outline:none;padding:4px 0;min-width:0}
+  .op-in::placeholder{color:#aab3bd;font-weight:500}
+  .op-tip{font-size:12px;color:var(--warn);white-space:nowrap}
+  .op-default{color:var(--warn)}
+  /* лог */
+  .chip{flex:1;font-size:14px;font-weight:600;padding:10px 6px;text-align:center}
+  .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .logday{font-weight:800;color:var(--ink);font-size:13px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.02em}
+  .logrow{display:flex;gap:10px;align-items:center;background:var(--card);border-radius:12px;
+    padding:10px 12px;box-shadow:var(--shadow);border-left:4px solid var(--accent);margin-bottom:8px}
+  .logrow.cancel{border-left-color:var(--danger)}
+  .logrow .lt{font-size:12px;color:var(--muted);min-width:78px;font-variant-numeric:tabular-nums}
+  .logrow .lm{flex:1;min-width:0}
+  .logrow .lr{text-align:right;min-width:100px}
   /* import */
   textarea,input.t{width:100%;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;font-family:inherit}
   .sec{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-top:12px}
@@ -111,6 +136,11 @@
       <div class="stat"><b id="s-people">0/0</b><span>получили</span></div>
       <div class="stat"><b id="s-gifts">0/0</b><span>выдано</span></div>
     </div>
+    <div class="opbox" id="opbox">
+      <span class="op-ic">👤</span>
+      <input id="op-top" class="op-in" placeholder="Ваше имя (оператор) — будет записано в лог" autocomplete="off" enterkeyhint="done">
+      <span class="op-tip" id="op-tip"></span>
+    </div>
     <div class="conn"><span class="dot" id="dot"></span><span id="conn-txt">подключение…</span><span id="queue-txt"></span></div>
     <div class="offline-banner" id="offline-banner"></div>
   </div>
@@ -122,7 +152,8 @@
   <button class="tab active" data-tab="razdacha"><span class="ic">🎁</span>Раздача</button>
   <button class="tab" data-tab="podarki"><span class="ic">📦</span>Подарки</button>
   <button class="tab" data-tab="lyudi"><span class="ic">👥</span>Люди</button>
-  <button class="tab" data-tab="import"><span class="ic">⚙️</span>Импорт</button>
+  <button class="tab" data-tab="log"><span class="ic">📋</span>Лог</button>
+  <button class="gear" id="gear" title="Импорт и настройки"><span class="ic">⚙️</span><span class="gl">Импорт</span></button>
 </div>
 
 <div id="modal"></div>
@@ -136,8 +167,12 @@ const SUPABASE_ANON = 'sb_publishable_5o7z5unD-XLsOXriTBKPEw_e_bRmbK5';
 const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON) : null;
 
 let people = [], gifts = [], handouts = [];
+let history = [];             // лог выдач и отмен (через get_handout_log)
 let tab = 'razdacha';
 let searchQ = '';
+let podarkiQ = '';
+let logFilter = 'all';        // all | give | cancel
+let logQ = '';
 let selectedPersonId = null;
 let selectedGift = null;
 let giving = false;           // защита от двойного тапа
@@ -153,6 +188,29 @@ const fmt = ts => ts ? new Intl.DateTimeFormat('ru-RU',{dateStyle:'short',timeSt
 const normName = s => String(s||'').trim().replace(/\s+/g,' ');
 const normKey = s => normName(s).toLowerCase();
 function operatorName(){ return (localStorage.getItem('operator') || 'Волонтёр').slice(0,100); }
+/* Имя оператора — на видном месте вверху экрана, чтобы указать его сразу */
+function updateOperatorState(){
+  const box = $('#opbox'), tip = $('#op-tip');
+  if (!box) return;
+  const v = operatorName();
+  const isDefault = v === 'Волонтёр';
+  box.classList.toggle('warn', isDefault);
+  if (tip) tip.textContent = isDefault ? 'не задано' : '';
+}
+function initOperator(){
+  const inp = $('#op-top');
+  if (!inp) return;
+  inp.value = operatorName();
+  inp.onchange = () => {
+    const v = inp.value.trim().slice(0,100) || 'Волонтёр';
+    localStorage.setItem('operator', v);
+    inp.value = v;
+    updateOperatorState();
+    toast('Оператор сохранён');
+  };
+  inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); };
+  updateOperatorState();
+}
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.style.display='block';
   clearTimeout(toast._t); toast._t = setTimeout(()=>t.style.display='none', 2600);
@@ -227,7 +285,7 @@ async function processQueue(){
       if (op.type === 'give'){
         r = await rpc('assign_gift', {p_person_id: op.person_id, p_gift_name: op.gift_name, p_operator: op.operator});
       } else if (op.type === 'undo'){
-        r = await rpc('unassign_handout', {p_handout_id: op.handout_id});
+        r = await rpc('unassign_handout', {p_handout_id: op.handout_id, p_operator: op.operator});
       } else if (op.type === 'contact'){
         r = await rpc('update_person_contact', {p_person_id: op.person_id, p_phone: op.phone, p_comment: op.comment});
       }
@@ -285,6 +343,11 @@ async function loadAll(){
       toast('Нет связи — показаны последние данные');
     }
   }
+  // Лог выдач/отмен: если не получилось — оставляем прежний лог, экран не ломается
+  try{
+    const log = await rpc('get_handout_log', {p_limit: 2000});
+    if (Array.isArray(log)) history = log;
+  }catch(e){ /* keep old log */ }
   updateConn();
   render();
 }
@@ -333,7 +396,16 @@ function personHandout(pid){ return handouts.find(h => h.person_id === pid); }
 function render(){
   $('#s-people').textContent = `${people.filter(p=>p.received).length}/${people.length}`;
   $('#s-gifts').textContent  = `${gifts.filter(g=>g.status==='given').length}/${gifts.length}`;
-  ({razdacha:renderRazdacha, podarki:renderPodarki, lyudi:renderLyudi, import:renderImport}[tab])();
+  ({razdacha:renderRazdacha, podarki:renderPodarki, lyudi:renderLyudi, log:renderLog, import:renderImport}[tab])();
+}
+
+/* простая проверка подарка по запросу: название (без учёта регистра) или слот № */
+function giftHit(t, q){
+  const ql = String(q||'').trim().toLowerCase();
+  if (!ql) return true;
+  if (t.name && t.name.toLowerCase().includes(ql)) return true;
+  const qd = String(q||'').replace(/\D/g,'');
+  return !!(qd && t.slot && String(t.slot).includes(qd));
 }
 
 /* Поиск: инпут создаётся один раз, при вводе обновляется ТОЛЬКО список.
@@ -390,26 +462,99 @@ function renderLyudi(){
   bindSearch();
 }
 
-function renderPodarki(){
+function podarkiTypes(){
   const map = new Map();
   for (const g of gifts){
-    if (!map.has(g.name)) map.set(g.name,{name:g.name,total:0,avail:0,given:[]});
+    if (!map.has(g.name)) map.set(g.name,{name:g.name,total:0,avail:0,given:[],slot:null});
     const t = map.get(g.name); t.total++;
+    if (t.slot===null && g.slot_number) t.slot = g.slot_number;
     if (g.status==='available') t.avail++; else {
       const h = handouts.find(x=>x.gift_id===g.id);
       t.given.push(h ? `${h.person_name} · ${fmt(h.created_at)}` : '—');
     }
   }
-  const types = [...map.values()].sort((a,b)=> (b.avail>0?0:1)-(a.avail>0?0:1) || a.name.localeCompare(b.name,'ru'));
-  let html = `<div class="hint">Подарки с привязкой к человеку (вычеркнутые — выданы)</div><div class="list">`;
+  return [...map.values()].sort((a,b)=> (b.avail>0?0:1)-(a.avail>0?0:1) || a.name.localeCompare(b.name,'ru'));
+}
+function podarkiListHTML(types){
+  let html = `<div class="list">`;
   for (const t of types){
     const val = isValuable(t.name);
-    html += `<div class="row"><div class="name">${esc(t.name)}${val?' <span class="badge" style="background:#fdf2e0;color:#8a5a12">⚠️ ЦЕННЫЙ</span>':''}<div class="sub">осталось ${t.avail} из ${t.total}</div></div>`+
+    html += `<div class="row"><div class="name">${esc(t.name)}${val?' <span class="badge" style="background:#fdf2e0;color:#8a5a12">⚠️ ЦЕННЫЙ</span>':''}<div class="sub">осталось ${t.avail} из ${t.total}${t.slot?` · слот №${esc(t.slot)}`:''}</div></div>`+
             (t.avail>0?`<span class="badge b-no">${t.avail}</span>`:`<span class="badge b-given">нет</span>`)+`</div>`;
     for (const who of t.given) html += `<div class="row" style="padding-left:28px;box-shadow:none;background:#fafbfc"><div class="name struck" style="font-weight:500;font-size:15px">${esc(who)}</div></div>`;
   }
   html += `</div>`;
-  $('#view').innerHTML = html;
+  return html;
+}
+function filterPodarki(){ return podarkiTypes().filter(t => giftHit(t, podarkiQ)); }
+function renderPodarki(){
+  $('#view').innerHTML =
+    `<div class="search"><input id="pq" value="${esc(podarkiQ)}" placeholder="Поиск по подаркам (название или слот №)…" autocomplete="off" enterkeyhint="search"></div>` +
+    `<div class="hint">Подарки с привязкой к человеку (вычеркнутые — выданы)</div>` +
+    `<div id="plist">${podarkiListHTML(filterPodarki())}</div>`;
+  const inp = $('#pq');
+  if (inp) inp.oninput = e => {
+    // обновляем только список, инпут не пересоздаём
+    podarkiQ = e.target.value;
+    const list = $('#plist');
+    if (list) list.innerHTML = podarkiListHTML(filterPodarki());
+  };
+}
+
+/* ---------- лог выдач и отмен ---------- */
+function logRows(){
+  const q = logQ.trim().toLowerCase();
+  return history.filter(h=>{
+    if (logFilter==='give' && h.cancelled_at) return false;
+    if (logFilter==='cancel' && !h.cancelled_at) return false;
+    if (q){
+      const hay = [h.person_name, h.gift_name, h.operator, h.cancelled_by].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function logListHTML(rows){
+  if (!history.length) return `<div class="empty">Пока нет записей.<br>Выдачи и отмены появятся здесь сразу после действия.</div>`;
+  if (!rows.length) return `<div class="empty">Ничего не найдено по «${esc(logQ)}».</div>`;
+  const given = history.filter(h=>!h.cancelled_at).length;
+  const cancel = history.length - given;
+  let html = `<div class="lbl" style="margin:4px 0 10px">Записей: <b>${history.length}</b> · выдано: <b>${given}</b> · отменено: <b>${cancel}</b> · оператор: <b>${esc(operatorName())}</b></div>`;
+  let day = '';
+  for (const h of rows){
+    const when = h.cancelled_at ? h.cancelled_at : h.created_at;
+    const d = new Date(when);
+    const dk = new Intl.DateTimeFormat('ru-RU',{dateStyle:'full'}).format(d);
+    if (dk !== day){ day = dk; html += `<div class="logday">${dk}</div>`; }
+    const cancelled = !!h.cancelled_at;
+    const right = cancelled
+      ? `<span class="badge b-given">Отменено</span><div class="sub">отменил(а): ${esc(h.cancelled_by||'—')}</div>`
+      : `<span class="badge b-ok">Выдано</span><div class="sub">${esc(h.operator||'—')}</div>`;
+    html += `<div class="logrow ${cancelled?'cancel':'give'}">` +
+      `<div class="lt">${fmt(when)}</div>` +
+      `<div class="lm"><div class="name ${cancelled?'struck':''}">${esc(h.person_name)}</div><div class="sub">${esc(h.gift_name)}</div></div>` +
+      `<div class="lr">${right}</div></div>`;
+  }
+  return html;
+}
+function renderLog(){
+  $('#view').innerHTML =
+    `<div class="search"><input id="lq" value="${esc(logQ)}" placeholder="Поиск по логу: человек, подарок, оператор…" autocomplete="off" enterkeyhint="search"></div>` +
+    `<div class="btn-row" style="margin-top:8px">` +
+      [['all','Все'],['give','Только выдачи'],['cancel','Только отмены']].map(([f,label])=>
+        `<button class="btn ghost chip ${logFilter===f?'on':''}" data-lf="${f}">${label}</button>`).join('') +
+    `</div>` +
+    `<div class="btn-row"><button class="btn ghost" id="logcsv">Скачать лог (CSV)</button></div>` +
+    `<div id="log-list" style="margin-top:10px">${logListHTML(logRows())}</div>`;
+  const inp = $('#lq');
+  if (inp) inp.oninput = e => {
+    logQ = e.target.value;
+    const l = $('#log-list');
+    if (l) l.innerHTML = logListHTML(logRows());
+  };
+  $('#view').querySelectorAll('[data-lf]').forEach(b=>b.onclick=()=>{ logFilter = b.dataset.lf; renderLog(); });
+  const csv = $('#logcsv');
+  if (csv) csv.onclick = exportLogCSV;
 }
 
 function failedOpsHTML(){
@@ -460,11 +605,8 @@ function renderImport(){
     <div class="lbl">Все изменения хранятся в облаке (Supabase) и синхронизируются между устройствами. Скачайте копию на всякий случай:</div>
     <div class="btn-row">
       <button class="btn ghost" id="expjson">Скачать бэкап (JSON)</button>
-      <button class="btn ghost" id="expcsv">Лог выдачи (CSV)</button>
     </div>
     <div class="filebtn btn ghost mt" style="display:block;text-align:center">Восстановить из бэкапа (JSON)<input type="file" id="impjson" accept=".json"></div>
-    <div class="lbl" style="margin-top:12px">Имя оператора (пишется в лог):</div>
-    <input class="t" id="op" value="${esc(operatorName())}" placeholder="Волонтёр">
     <div class="lbl" style="margin-top:12px;color:var(--danger)">Опасная зона:</div>
     <button class="btn danger mt" id="clearp">Очистить список людей (не получивших)</button>
   </div>`;
@@ -475,9 +617,7 @@ function renderImport(){
   $('#addp').onclick = addPerson;
   $('#addg').onclick = addGift;
   $('#expjson').onclick = exportBackup;
-  $('#expcsv').onclick = exportHandoutsCSV;
   $('#impjson').onchange = importBackup;
-  $('#op').onchange = e => { localStorage.setItem('operator', e.target.value.trim().slice(0,100)); toast('Сохранено'); };
   $('#clearp').onclick = clearPeople;
   $('#view').querySelectorAll('[data-retry]').forEach(b=>b.onclick=async ()=>{
     const f = getFailed(); const op = f[+b.dataset.retry]; if (!op) return;
@@ -495,10 +635,10 @@ function renderImport(){
 const VALUABLE_GIFTS = new Set(['колонка алиса']);
 function isValuable(name){ return VALUABLE_GIFTS.has(String(name||'').trim().toLowerCase()); }
 function giftCardsHTML(query){
-  const q = String(query||'').trim().toLowerCase();
-  const types = giftTypes().filter(t => !q || t.name.toLowerCase().includes(q));
+  const q = String(query||'').trim();
+  const types = giftTypes().filter(t => !q || giftHit(t, q));
   if (!giftTypes().length) return `<div class="empty">Нет доступных подарков</div>`;
-  if (!types.length) return `<div class="empty">Ничего не найдено по «${esc(query)}»</div>`;
+  if (!types.length) return `<div class="empty">Ничего не найдено по «${esc(query)}».</div>`;
   return types.map(t=>{
     const val = isValuable(t.name);
     return `<div class="gift${selectedGift===t.name?' sel':''}${val?' valuable':''}" data-g="${esc(t.name)}">${esc(t.name)}<div class="gc">осталось ${t.avail}</div>${val?'<div class="vb">⚠️ ЦЕННЫЙ</div>':''}</div>`;
@@ -536,7 +676,9 @@ function openPerson(pid){
       <div class="kv">Кто выдал: <b>${esc(h.operator||'—')}</b></div>
       <button class="btn warn mt" id="undo">Отменить выдачу</button>`;
   } else {
+    const op = operatorName();
     body = `<div class="banner ok">МОЖНО ВЫДАТЬ</div>
+      <div class="kv">Оператор: <b class="${op==='Волонтёр'?'op-default':''}">${esc(op)}</b>${op==='Волонтёр'?' <span style="color:var(--warn)">— задайте имя вверху</span>':''}</div>
       <div class="kv">Выберите, что выдаёте:</div>
       <input class="gsearch" id="gq" placeholder="Быстрый поиск подарка…" autocomplete="off" enterkeyhint="search">
       <div class="gifts" id="glist">${giftCardsHTML('')}</div>
@@ -604,12 +746,12 @@ async function giveGift(person, giftName){
 async function undoHandout(id){
   if (!confirm('Отменить выдачу? Подарок вернётся в список.')) return;
   try{
-    const r = await rpc('unassign_handout', {p_handout_id:id});
+    const r = await rpc('unassign_handout', {p_handout_id:id, p_operator: operatorName()});
     if (!r.ok){ toast(translateError(r.error)); return; }
     toast('Выдача отменена');
   }catch(e){
     console.error(e);
-    enqueue({type:'undo', handout_id: id});
+    enqueue({type:'undo', handout_id: id, operator: operatorName()});
   }
   closeModal(); await loadAll();
 }
@@ -631,8 +773,10 @@ async function savePerson(pid){
 function giftTypes(){
   const map = new Map();
   for (const g of gifts){
-    if (!map.has(g.name)) map.set(g.name,{name:g.name,avail:0});
-    if (g.status==='available') map.get(g.name).avail++;
+    if (!map.has(g.name)) map.set(g.name,{name:g.name,avail:0,slot:null});
+    const t = map.get(g.name);
+    if (t.slot===null && g.slot_number) t.slot = g.slot_number;
+    if (g.status==='available') t.avail++;
   }
   return [...map.values()].filter(t=>t.avail>0).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
 }
@@ -845,10 +989,15 @@ function csvCell(v){
   const s = String(v==null?'':v);
   return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 }
-function exportHandoutsCSV(){
-  const head = 'ФИО;Подарок;Когда;Кто выдал\n';
-  const body = handouts.map(h=>[h.person_name, h.gift_name, h.created_at, h.operator||''].map(csvCell).join(';')).join('\n');
-  download('log-vydachi-'+Date.now()+'.csv', '\ufeff'+head+body, 'text/csv;charset=utf-8');
+/* полный лог: выдачи и отмены с тем, кто и когда */
+function exportLogCSV(){
+  const head = 'Действие;ФИО;Подарок;Когда;Кто выдал;Кто отменил;Когда отменено\n';
+  const body = history.map(h=>{
+    const act = h.cancelled_at ? 'Отмена' : 'Выдача';
+    return [act, h.person_name, h.gift_name, h.created_at, h.operator||'', h.cancelled_by||'', h.cancelled_at||'']
+      .map(csvCell).join(';');
+  }).join('\n');
+  download('log-vydachi-i-otmen-'+Date.now()+'.csv', '\ufeff'+head+body, 'text/csv;charset=utf-8');
 }
 async function importBackup(e){
   const f = e.target.files[0]; if (!f) return;
@@ -885,10 +1034,16 @@ function bindSearch(){
 }
 
 /* ---------- tabs ---------- */
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  t.classList.add('active'); tab = t.dataset.tab; searchQ=''; render();
-});
+function setTab(name){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab===name));
+  const g = $('#gear');
+  if (g) g.classList.toggle('active', name==='import');
+  tab = name;
+  searchQ=''; podarkiQ='';
+  render();
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
+$('#gear').onclick = ()=>setTab('import');
 
 /* ---------- online/offline ---------- */
 window.addEventListener('online', ()=>{ updateConn(); processQueue(); loadAll(); });
@@ -897,6 +1052,7 @@ window.addEventListener('offline', ()=>{ updateConn(); });
 /* ---------- boot ---------- */
 (async function boot(){
   if (!sb){ document.getElementById('view').innerHTML='<div class="empty">Не удалось загрузить библиотеку Supabase (нужен интернет). Обновите страницу.</div>'; return; }
+  initOperator(); // имя оператора на видном месте
   loadCache(); render(); // мгновенный показ кэша, потом свежие данные
   await loadAll();
   subscribe();
