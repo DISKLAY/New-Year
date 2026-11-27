@@ -89,12 +89,15 @@
     display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;cursor:pointer}
   .tab .ic{font-size:20px}
   .tab.active{color:var(--accent)}
-  /* шестерёнка: Импорт убрал из рядка вкладок в угол */
-  .gear{flex:0 0 auto;border:none;background:none;font-size:11px;font-weight:600;color:var(--muted);
-    display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 12px;cursor:pointer}
-  .gear .ic{font-size:20px}
-  .gear .gl{font-size:10px;line-height:1}
-  .gear.active{color:var(--accent)}
+  /* Импорт — шестеренка в углу сверху, не в ряд вкладок */
+  .gearbtn{position:fixed;top:10px;right:10px;z-index:45;width:44px;height:44px;border-radius:14px;
+    border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;padding:0}
+  .gearbtn:active{transform:scale(.95)}
+  .gearbtn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  @media (max-width:760px){
+    .top{padding-right:58px}
+  }
   /* оператор — на видном месте, сразу видно, задано ли имя */
   .opbox{display:flex;align-items:center;gap:8px;margin-top:8px;background:var(--card);
     border-radius:14px;padding:8px 12px;box-shadow:var(--shadow);border:2px solid transparent}
@@ -153,8 +156,10 @@
   <button class="tab" data-tab="podarki"><span class="ic">📦</span>Подарки</button>
   <button class="tab" data-tab="lyudi"><span class="ic">👥</span>Люди</button>
   <button class="tab" data-tab="log"><span class="ic">📋</span>Лог</button>
-  <button class="gear" id="gear" title="Импорт и настройки"><span class="ic">⚙️</span><span class="gl">Импорт</span></button>
 </div>
+
+<!-- Импорт — не в ряд вкладок, а шестеренка в углу сверху -->
+<button class="gearbtn" id="gear" title="Импорт и настройки">⚙️</button>
 
 <div id="modal"></div>
 <div id="toast"></div>
@@ -169,6 +174,7 @@ const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE
 let people = [], gifts = [], handouts = [];
 let history = [];             // лог выдач и отмен (через get_handout_log)
 let tab = 'razdacha';
+let prevTab = 'razdacha';   // откуда пришлось уйти в Импорт (шестеренка)
 let searchQ = '';
 let podarkiQ = '';
 let logFilter = 'all';        // all | give | cancel
@@ -574,7 +580,11 @@ function failedOpsHTML(){
   return html;
 }
 function renderImport(){
-  let html = failedOpsHTML() + `
+  const backBar = `<div class="sec" style="display:flex;align-items:center;justify-content:space-between;margin-top:0">
+    <h3 style="margin:0">⚙️ Импорт и настройки</h3>
+    <button class="btn ghost" id="back" style="width:auto;padding:8px 14px;font-size:14px">← Назад</button>
+  </div>`;
+  let html = backBar + failedOpsHTML() + `
   <div class="sec">
     <h3>Список участников</h3>
     <div class="lbl">Вставьте список (по одному в строку). Форматы: «ФИО», «ФИО; телефон» или «номер; ФИО; телефон».</div>
@@ -611,6 +621,7 @@ function renderImport(){
     <button class="btn danger mt" id="clearp">Очистить список людей (не получивших)</button>
   </div>`;
   $('#view').innerHTML = html;
+  $('#back').onclick = ()=>setTab(prevTab || 'razdacha');
   $('#preview').onclick = previewImport;
   $('#doimport').onclick = doImport;
   $('#file').onchange = importFile;
@@ -1043,7 +1054,11 @@ function setTab(name){
   render();
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
-$('#gear').onclick = ()=>setTab('import');
+// шестеренка в углу: открывает Импорт, ещё раз — возвращает на предыдущую вкладку
+$('#gear').onclick = ()=>{
+  if (tab === 'import') setTab(prevTab || 'razdacha');
+  else { prevTab = tab; setTab('import'); }
+};
 
 /* ---------- online/offline ---------- */
 window.addEventListener('online', ()=>{ updateConn(); processQueue(); loadAll(); });
