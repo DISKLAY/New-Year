@@ -233,7 +233,7 @@ SELECT person_id, gift_id INTO ... FROM handouts WHERE id = p_handout_id FOR UPD
 -- вместо DELETE — soft-delete: cancelled_at/cancelled_by, или перенос в audit-таблицу
 ```
 
-**Применено (в текущей версии):** `unassign_handout(bigint, text)` с `FOR UPDATE` на `handouts`/`gifts`/`people`, проверкой состояния и параметром `p_operator`. История не теряется: таблица `handouts_history` теперь хранит **одну строку на выдачу** — `assign_gift` фиксирует выдачу (`cancelled_at = NULL`), `unassign_handout` ставит на той же строке `cancelled_at`/`cancelled_by`. Читать историю anon может только через `SECURITY DEFINER`-функцию `get_handout_log` (для экрана «Лог»).
+**Применено (в текущей версии):** `unassign_handout(bigint, text)` с `FOR UPDATE` на `handouts`/`gifts`/`people`, проверкой состояния и параметром `p_operator`. История не теряется: таблица `handouts_history` хранит **отдельные записи событий** — `assign_gift` пишет событие `give` (время выдачи, кто выдал), `unassign_handout` пишет отдельную запись события `cancel` (своё время, кто отменил). Обе записи связаны по `id` (id выдачи из `handouts`), поэтому в логе выдача и отмена видны как связанная пара со своими временами. Читать историю anon может только через `SECURITY DEFINER`-функцию `get_handout_log` (для экрана «Лог»).
 
 ### P1-7. Двойной тап по «Выдать»
 

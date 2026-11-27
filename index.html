@@ -114,6 +114,8 @@
   .logrow{display:flex;gap:10px;align-items:center;background:var(--card);border-radius:12px;
     padding:10px 12px;box-shadow:var(--shadow);border-left:4px solid var(--accent);margin-bottom:8px}
   .logrow.cancel{border-left-color:var(--danger)}
+  .logrow.sub{margin-left:20px}
+  .sub.link{color:var(--danger);font-weight:600}
   .logrow .lt{font-size:12px;color:var(--muted);min-width:78px;font-variant-numeric:tabular-nums}
   .logrow .lm{flex:1;min-width:0}
   .logrow .lr{text-align:right;min-width:100px}
@@ -507,39 +509,64 @@ function renderPodarki(){
   };
 }
 
-/* ---------- лог выдач и отмен ---------- */
-function logRows(){
+/* ---------- лог: отдельные записи событий (выдача / отмена), связаны по handout_id ---------- */
+/* Каждое событие — своя запись со своим временем; выдача и отмена одной выдачи
+   связаны по handout_id и показываются как связанная пара. */
+function logGroups(){
+  const map = new Map();
+  for (const ev of history){
+    const key = (ev.handout_id != null ? 'h'+ev.handout_id : 'e'+ev.id);
+    let g = map.get(key);
+    if (!g){ g = {key, handout_id: ev.handout_id, give:null, cancel:null, events:[]}; map.set(key,g); }
+    g.events.push(ev);
+    if (ev.event === 'cancel') g.cancel = ev;
+    else if (!g.give) g.give = ev;
+  }
+  const groups = [...map.values()];
+  for (const g of groups){
+    g.when = g.events.reduce((m,e)=> Math.max(m, new Date(e.created_at).getTime()), 0);
+  }
+  return groups.sort((a,b)=> b.when - a.when);
+}
+function logVisibleGroups(){
   const q = logQ.trim().toLowerCase();
-  return history.filter(h=>{
-    if (logFilter==='give' && h.cancelled_at) return false;
-    if (logFilter==='cancel' && !h.cancelled_at) return false;
+  return logGroups().filter(g=>{
+    if (logFilter==='give' && !g.give) return false;
+    if (logFilter==='cancel' && !g.cancel) return false;
     if (q){
-      const hay = [h.person_name, h.gift_name, h.operator, h.cancelled_by].filter(Boolean).join(' ').toLowerCase();
+      const hay = g.events.map(e=>[e.person_name,e.gift_name,e.operator,e.cancelled_by].filter(Boolean).join(' ')).join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   });
 }
-function logListHTML(rows){
+function logListHTML(){
   if (!history.length) return `<div class="empty">Пока нет записей.<br>Выдачи и отмены появятся здесь сразу после действия.</div>`;
-  if (!rows.length) return `<div class="empty">Ничего не найдено по «${esc(logQ)}».</div>`;
-  const given = history.filter(h=>!h.cancelled_at).length;
-  const cancel = history.length - given;
+  const groups = logVisibleGroups();
+  if (!groups.length) return `<div class="empty">Ничего не найдено по «${esc(logQ)}».</div>`;
+  const given = history.filter(e=>e.event!=='cancel').length;
+  const cancel = history.filter(e=>e.event==='cancel').length;
   let html = `<div class="lbl" style="margin:4px 0 10px">Записей: <b>${history.length}</b> · выдано: <b>${given}</b> · отменено: <b>${cancel}</b> · оператор: <b>${esc(operatorName())}</b></div>`;
   let day = '';
-  for (const h of rows){
-    const when = h.cancelled_at ? h.cancelled_at : h.created_at;
-    const d = new Date(when);
-    const dk = new Intl.DateTimeFormat('ru-RU',{dateStyle:'full'}).format(d);
+  for (const g of groups){
+    const when = new Date(g.cancel ? g.cancel.created_at : g.give.created_at);
+    const dk = new Intl.DateTimeFormat('ru-RU',{dateStyle:'full'}).format(when);
     if (dk !== day){ day = dk; html += `<div class="logday">${dk}</div>`; }
-    const cancelled = !!h.cancelled_at;
-    const right = cancelled
-      ? `<span class="badge b-given">Отменено</span><div class="sub">отменил(а): ${esc(h.cancelled_by||'—')}</div>`
-      : `<span class="badge b-ok">Выдано</span><div class="sub">${esc(h.operator||'—')}</div>`;
-    html += `<div class="logrow ${cancelled?'cancel':'give'}">` +
-      `<div class="lt">${fmt(when)}</div>` +
-      `<div class="lm"><div class="name ${cancelled?'struck':''}">${esc(h.person_name)}</div><div class="sub">${esc(h.gift_name)}</div></div>` +
-      `<div class="lr">${right}</div></div>`;
+    const give = g.give, cancelEv = g.cancel;
+    if (logFilter !== 'cancel' && give){
+      html += `<div class="logrow give">` +
+        `<div class="lt">${fmt(give.created_at)}</div>` +
+        `<div class="lm"><div class="name">${esc(give.person_name)}</div><div class="sub">${esc(give.gift_name)}</div></div>` +
+        `<div class="lr"><span class="badge b-ok">Выдано</span><div class="sub">${esc(give.operator||'—')}</div>` +
+        (cancelEv ? `<div class="sub link">↔ отменена</div>` : '') + `</div></div>`;
+    }
+    if (logFilter !== 'give' && cancelEv){
+      html += `<div class="logrow cancel sub">` +
+        `<div class="lt">${fmt(cancelEv.created_at)}</div>` +
+        `<div class="lm"><div class="name struck">${esc(cancelEv.person_name)}</div><div class="sub">${esc(cancelEv.gift_name)}</div></div>` +
+        `<div class="lr"><span class="badge b-given">Отменено</span><div class="sub">отменил(а): ${esc(cancelEv.cancelled_by||'—')}</div>` +
+        (give ? `<div class="sub">выдано: ${fmt(give.created_at)} · ${esc(give.operator||'—')}</div>` : '') + `</div></div>`;
+    }
   }
   return html;
 }
@@ -551,12 +578,12 @@ function renderLog(){
         `<button class="btn ghost chip ${logFilter===f?'on':''}" data-lf="${f}">${label}</button>`).join('') +
     `</div>` +
     `<div class="btn-row"><button class="btn ghost" id="logcsv">Скачать лог (CSV)</button></div>` +
-    `<div id="log-list" style="margin-top:10px">${logListHTML(logRows())}</div>`;
+    `<div id="log-list" style="margin-top:10px">${logListHTML()}</div>`;
   const inp = $('#lq');
   if (inp) inp.oninput = e => {
     logQ = e.target.value;
     const l = $('#log-list');
-    if (l) l.innerHTML = logListHTML(logRows());
+    if (l) l.innerHTML = logListHTML();
   };
   $('#view').querySelectorAll('[data-lf]').forEach(b=>b.onclick=()=>{ logFilter = b.dataset.lf; renderLog(); });
   const csv = $('#logcsv');
@@ -1000,12 +1027,12 @@ function csvCell(v){
   const s = String(v==null?'':v);
   return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 }
-/* полный лог: выдачи и отмены с тем, кто и когда */
+/* полный лог: отдельные записи событий с собственным временем */
 function exportLogCSV(){
-  const head = 'Действие;ФИО;Подарок;Когда;Кто выдал;Кто отменил;Когда отменено\n';
-  const body = history.map(h=>{
-    const act = h.cancelled_at ? 'Отмена' : 'Выдача';
-    return [act, h.person_name, h.gift_name, h.created_at, h.operator||'', h.cancelled_by||'', h.cancelled_at||'']
+  const head = 'Действие;ФИО;Подарок;Когда;Кто выдал;Кто отменил\n';
+  const body = history.map(e=>{
+    const act = e.event === 'cancel' ? 'Отмена' : 'Выдача';
+    return [act, e.person_name, e.gift_name, e.created_at, e.operator||'', e.cancelled_by||'']
       .map(csvCell).join(';');
   }).join('\n');
   download('log-vydachi-i-otmen-'+Date.now()+'.csv', '\ufeff'+head+body, 'text/csv;charset=utf-8');
