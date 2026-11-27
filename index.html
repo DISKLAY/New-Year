@@ -1,429 +1,560 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Тайный Санта для Дарьи</title>
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Marck+Script&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Caveat', cursive;
-            background-color: #f5f1e8;
-            background-image: 
-                radial-gradient(#e0d6c2 2px, transparent 2px),
-                radial-gradient(#e0d6c2 1px, transparent 1px);
-            background-size: 40px 40px, 8px 8px;
-            background-position: 0 0, 20px 20px;
-            color: #3a2615;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-            position: relative;
-            overflow-x: hidden;
-        }
-        
-        .paper-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: 
-                linear-gradient(rgba(245, 241, 232, 0.7), rgba(245, 241, 232, 0.7)),
-                url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><path d="M0,0 L100,0 L100,100 L0,100 Z" fill="none" stroke="%23d4c9b1" stroke-width="0.5"/></svg>');
-            pointer-events: none;
-            z-index: -1;
-        }
-        
-        .envelope {
-            width: 320px;
-            height: 220px;
-            background-color: #c62828;
-            position: relative;
-            border-radius: 0 0 10px 10px;
-            margin: 30px auto 40px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            cursor: pointer;
-            transition: transform 0.5s;
-            z-index: 2;
-        }
-        
-        .envelope:hover {
-            transform: scale(1.05);
-        }
-        
-        .envelope:before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            margin: 0 auto;
-            width: 0;
-            height: 0;
-            border-left: 160px solid transparent;
-            border-right: 160px solid transparent;
-            border-bottom: 110px solid #b71c1c;
-            z-index: 3;
-        }
-        
-        .envelope:after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 160px;
-            height: 220px;
-            background-color: #d32f2f;
-            transform: skewY(40deg);
-            transform-origin: top left;
-            border-radius: 10px 0 0 10px;
-            z-index: 1;
-        }
-        
-        .envelope-flap {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 160px;
-            height: 220px;
-            background-color: #d32f2f;
-            transform: skewY(-40deg);
-            transform-origin: top right;
-            border-radius: 0 10px 10px 0;
-            z-index: 1;
-        }
-        
-        .envelope-heart {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 48px;
-            color: rgba(255, 255, 255, 0.9);
-            z-index: 4;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        
-        .letter-container {
-            width: 90%;
-            max-width: 600px;
-            background-color: #fffef7;
-            padding: 30px;
-            border-radius: 2px;
-            box-shadow: 
-                0 0 10px rgba(0, 0, 0, 0.1),
-                inset 0 0 20px rgba(0, 0, 0, 0.05);
-            position: relative;
-            margin-top: -100px;
-            opacity: 0;
-            transform: translateY(30px);
-            transition: all 1s ease;
-            z-index: 1;
-            border: 1px solid #e8e0d0;
-        }
-        
-        .letter-container.open {
-            opacity: 1;
-            transform: translateY(0);
-            margin-top: 20px;
-        }
-        
-        .letter-header {
-            text-align: center;
-            margin-bottom: 25px;
-            padding-bottom: 15px;
-            border-bottom: 2px dashed #d4c9b1;
-        }
-        
-        .letter-header h1 {
-            font-family: 'Marck Script', cursive;
-            font-size: 42px;
-            color: #c62828;
-            margin-bottom: 5px;
-            text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.1);
-        }
-        
-        .letter-header p {
-            font-size: 20px;
-            color: #5d4037;
-            font-style: italic;
-        }
-        
-        .letter-content {
-            font-size: 24px;
-            line-height: 1.6;
-            margin-bottom: 25px;
-        }
-        
-        .letter-content p {
-            margin-bottom: 15px;
-            text-align: justify;
-        }
-        
-        .highlight {
-            background-color: #fff9c4;
-            padding: 0 5px;
-            border-radius: 2px;
-            font-weight: 700;
-            color: #5d4037;
-        }
-        
-        .signature {
-            text-align: right;
-            font-size: 28px;
-            margin-top: 30px;
-            padding-top: 15px;
-            border-top: 2px dashed #d4c9b1;
-            font-family: 'Marck Script', cursive;
-            color: #c62828;
-        }
-        
-        .new-year-stamp {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            width: 100px;
-            height: 100px;
-            border: 2px dashed #c62828;
-            border-radius: 50%;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            transform: rotate(-15deg);
-            background-color: rgba(255, 255, 255, 0.9);
-        }
-        
-        .stamp-year {
-            font-size: 28px;
-            font-weight: bold;
-            color: #c62828;
-        }
-        
-        .stamp-text {
-            font-size: 14px;
-            color: #5d4037;
-            text-align: center;
-            margin-top: 5px;
-        }
-        
-        .snowflakes {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: -1;
-        }
-        
-        .snowflake {
-            position: absolute;
-            background-color: #fff;
-            border-radius: 50%;
-            opacity: 0.8;
-            filter: blur(0.5px);
-        }
-        
-        .footer-note {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 18px;
-            color: #795548;
-            opacity: 0.8;
-        }
-        
-        .paper-edge {
-            position: absolute;
-            background-color: #f5f1e8;
-            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
-        }
-        
-        .edge-1 {
-            top: -10px;
-            left: -10px;
-            right: -10px;
-            height: 20px;
-            transform: rotate(1deg);
-        }
-        
-        .edge-2 {
-            bottom: -10px;
-            left: -10px;
-            right: -10px;
-            height: 20px;
-            transform: rotate(-1deg);
-        }
-        
-        .edge-3 {
-            left: -10px;
-            top: -10px;
-            bottom: -10px;
-            width: 20px;
-            transform: rotate(1deg);
-        }
-        
-        .edge-4 {
-            right: -10px;
-            top: -10px;
-            bottom: -10px;
-            width: 20px;
-            transform: rotate(-1deg);
-        }
-        
-        @media (max-width: 600px) {
-            .letter-container {
-                padding: 20px 15px;
-            }
-            
-            .letter-header h1 {
-                font-size: 36px;
-            }
-            
-            .letter-content {
-                font-size: 22px;
-            }
-            
-            .envelope {
-                width: 280px;
-                height: 190px;
-            }
-            
-            .envelope:before {
-                border-left: 140px solid transparent;
-                border-right: 140px solid transparent;
-                border-bottom: 95px solid #b71c1c;
-            }
-            
-            .envelope:after, .envelope-flap {
-                width: 140px;
-                height: 190px;
-            }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Раздача подарков</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#eef1f4; --card:#ffffff; --ink:#1f2730; --muted:#6b7785;
+    --line:#e2e7ec; --accent:#1f9d55; --accent-ink:#ffffff;
+    --danger:#d64545; --warn:#e0962b; --okbg:#e7f6ee; --badbg:#fbeaea;
+    --shadow:0 1px 3px rgba(20,30,40,.08),0 4px 16px rgba(20,30,40,.06);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+    background:var(--bg);color:var(--ink);font-size:17px;line-height:1.35;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:10px 12px 84px}
+  /* top bar */
+  .top{position:sticky;top:0;z-index:20;background:var(--bg);padding:8px 0 6px}
+  .stats{display:flex;gap:8px}
+  .stat{flex:1;background:var(--card);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);text-align:center}
+  .stat b{display:block;font-size:22px;line-height:1.1}
+  .stat span{font-size:12px;color:var(--muted)}
+  .conn{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:var(--muted);margin-top:6px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(31,157,85,.18)}
+  .dot.off{background:#bbb;box-shadow:none}
+  /* search */
+  .search{position:sticky;top:74px;z-index:15;background:var(--bg);padding:6px 0 8px}
+  .search input{width:100%;font-size:20px;padding:14px 16px;border:1px solid var(--line);border-radius:16px;
+    background:var(--card);box-shadow:var(--shadow);outline:none}
+  .search input:focus{border-color:var(--accent)}
+  /* lists */
+  .list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  .row{background:var(--card);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);
+    display:flex;align-items:center;gap:12px;cursor:pointer;border:1px solid transparent}
+  .row:active{transform:scale(.99)}
+  .row .name{font-size:18px;font-weight:600;flex:1;min-width:0}
+  .row .sub{font-size:13px;color:var(--muted);margin-top:2px}
+  .badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+  .b-ok{background:var(--okbg);color:var(--accent)}
+  .b-no{background:#eef1f4;color:var(--muted)}
+  .b-given{background:var(--badbg);color:var(--danger)}
+  .empty{text-align:center;color:var(--muted);padding:40px 20px;font-size:15px}
+  .hint{text-align:center;color:var(--muted);font-size:13px;padding:8px}
+  /* gift picker */
+  .gifts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .gift{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:12px;text-align:center;cursor:pointer}
+  .gift.sel{border-color:var(--accent);background:var(--okbg)}
+  .gift .gn{font-weight:600;font-size:15px}
+  .gift .gc{font-size:13px;color:var(--muted);margin-top:4px}
+  /* buttons */
+  .btn{display:block;width:100%;border:none;border-radius:14px;padding:16px;font-size:18px;font-weight:700;
+    background:var(--accent);color:var(--accent-ink);cursor:pointer;box-shadow:var(--shadow)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .btn.danger{background:var(--danger);color:#fff}
+  .btn.warn{background:var(--warn);color:#fff}
+  .btn-row{display:flex;gap:8px;margin-top:10px}
+  .mt{margin-top:12px}
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(15,20,25,.45);display:flex;align-items:flex-end;justify-content:center;z-index:50}
+  .sheet{background:var(--bg);width:100%;max-width:760px;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;
+    padding:18px 16px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+  .sheet h2{margin:0 0 4px;font-size:22px}
+  .sheet .close{position:absolute;top:14px;right:16px;font-size:26px;color:var(--muted);background:none;border:none;cursor:pointer}
+  .banner{border-radius:14px;padding:12px 14px;font-weight:700;margin:10px 0;text-align:center}
+  .banner.ok{background:var(--okbg);color:var(--accent)}
+  .banner.warn{background:#fdf2e0;color:var(--warn)}
+  .banner.bad{background:var(--badbg);color:var(--danger)}
+  .kv{font-size:15px;color:var(--muted);margin:2px 0}
+  .kv b{color:var(--ink)}
+  /* tabs */
+  .tabs{position:fixed;bottom:0;left:0;right:0;z-index:40;display:flex;background:var(--card);
+    border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  .tab{flex:1;border:none;background:none;font-size:12px;font-weight:600;color:var(--muted);
+    display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;cursor:pointer}
+  .tab .ic{font-size:20px}
+  .tab.active{color:var(--accent)}
+  /* import */
+  textarea,input.t{width:100%;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;font-family:inherit}
+  .sec{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);margin-top:12px}
+  .sec h3{margin:0 0 8px;font-size:16px}
+  .lbl{font-size:13px;color:var(--muted);margin:8px 0 4px}
+  .preview{font-size:13px;color:var(--muted);margin-top:8px;max-height:160px;overflow:auto;white-space:pre-wrap}
+  .filebtn{position:relative;overflow:hidden;display:inline-block}
+  .filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#1f2730;color:#fff;
+    padding:12px 18px;border-radius:12px;font-size:15px;z-index:80;box-shadow:var(--shadow);max-width:90%;text-align:center}
+  .pill{display:inline-block;font-size:12px;background:#eef1f4;color:var(--muted);border-radius:999px;padding:3px 10px;margin:2px 4px 2px 0}
+  .struck{text-decoration:line-through;color:var(--muted)}
+  a.dl{color:var(--accent);font-weight:600}
+</style>
 </head>
 <body>
-    <div class="paper-overlay"></div>
-    
-    <div class="envelope" id="envelope">
-        <div class="envelope-flap"></div>
-        <div class="envelope-heart">✉️</div>
+<div class="wrap">
+  <div class="top">
+    <div class="stats">
+      <div class="stat"><b id="s-people">0/0</b><span>получили</span></div>
+      <div class="stat"><b id="s-gifts">0/0</b><span>выдано</span></div>
     </div>
-    
-    <div class="letter-container" id="letter">
-        <div class="paper-edge edge-1"></div>
-        <div class="paper-edge edge-2"></div>
-        <div class="paper-edge edge-3"></div>
-        <div class="paper-edge edge-4"></div>
-        
-        <div class="letter-header">
-            <h1>Тайный Санта</h1>
-            <p>Новогоднее поздравление</p>
-        </div>
-        
-        <div class="letter-content">
-            <p>Дорогая Дарья,</p>
-            
-            <p>Тебе пишет твой Тайный Санта! Очень рад был готовить для тебя этот небольшой сюрприз. Он ехал до тебя <span class="highlight">целых 5000 км</span>, представляешь?!</p>
-            
-            <p>Поздравляю тебя с Новым годом! Желаю, чтобы в Новом году сбылось твое самое заветное желание, которое ты загадаешь под бой курантов <span class="highlight">(загадай обязательно)</span>.</p>
-            
-            <p>Желаю тебе <span class="highlight">100 баллов на ЕГЭ ПО КАЖДОМУ ПРЕДМЕТУ</span>, вдохновения во всем, за что бы ты ни взялась, кучу приятных моментов и сюрпризов в 2026 году.</p>
-            
-            <p>Удачи!</p>
-        </div>
-        
-        <div class="signature">
-            Твой Тайный Санта 🎅
-        </div>
-        
-        <div class="new-year-stamp">
-            <div class="stamp-year">2026</div>
-            <div class="stamp-text">С Новым годом!</div>
-        </div>
-    </div>
-    
-    <div class="footer-note">
-        Это поздравление создано специально для тебя! ❄️
-    </div>
-    
-    <div class="snowflakes" id="snowflakes"></div>
+    <div class="conn"><span class="dot" id="dot"></span><span id="conn-txt">подключение…</span></div>
+  </div>
 
-    <script>
-        // Анимация открытия конверта
-        const envelope = document.getElementById('envelope');
-        const letter = document.getElementById('letter');
-        
-        envelope.addEventListener('click', function() {
-            envelope.style.transform = 'scale(0.8)';
-            envelope.style.opacity = '0.5';
-            envelope.style.transition = 'transform 0.5s, opacity 0.5s';
-            
-            setTimeout(() => {
-                envelope.style.display = 'none';
-                letter.classList.add('open');
-            }, 500);
-        });
-        
-        // Создание снежинок
-        const snowflakesContainer = document.getElementById('snowflakes');
-        const snowflakeCount = 50;
-        
-        for (let i = 0; i < snowflakeCount; i++) {
-            const snowflake = document.createElement('div');
-            snowflake.classList.add('snowflake');
-            
-            // Случайные размеры
-            const size = Math.random() * 5 + 2;
-            snowflake.style.width = `${size}px`;
-            snowflake.style.height = `${size}px`;
-            
-            // Случайная начальная позиция
-            snowflake.style.left = `${Math.random() * 100}%`;
-            snowflake.style.top = `${Math.random() * 100}%`;
-            
-            // Случайная продолжительность анимации
-            const duration = Math.random() * 10 + 10;
-            const delay = Math.random() * 5;
-            
-            // Анимация падения
-            snowflake.style.animation = `fall ${duration}s linear ${delay}s infinite`;
-            
-            // Добавляем снежинку
-            snowflakesContainer.appendChild(snowflake);
+  <div id="view"></div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="razdacha"><span class="ic">🎁</span>Раздача</button>
+  <button class="tab" data-tab="podarki"><span class="ic">📦</span>Подарки</button>
+  <button class="tab" data-tab="lyudi"><span class="ic">👥</span>Люди</button>
+  <button class="tab" data-tab="import"><span class="ic">⚙️</span>Импорт</button>
+</div>
+
+<div id="modal"></div>
+<div id="toast"></div>
+
+<script>
+/* ===== Конфиг изолированного проекта Supabase (только это мероприятие) ===== */
+const SUPABASE_URL = 'https://vvdegrbjngcgxffqykvj.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_5o7z5unD-XLsOXriTBKPEw_e_bRmbK5';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+let people = [], gifts = [], handouts = [];
+let tab = 'razdacha';
+let searchQ = '';
+let selectedPersonId = null;
+let selectedGift = null;
+
+/* ---------- helpers ---------- */
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = ts => ts ? new Intl.DateTimeFormat('ru-RU',{dateStyle:'short',timeStyle:'short'}).format(new Date(ts)) : '';
+function operatorName(){ return localStorage.getItem('operator') || 'Волонтёр'; }
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.style.display='block';
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.style.display='none', 2600);
+}
+function translateError(e){
+  return ({already_received:'Уже получил(а) подарок',
+           person_not_found:'Человек не найден',
+           no_gift_available:'Таких подарков больше нет',
+           handout_not_found:'Запись не найдена'})[e] || e;
+}
+async function rpc(name, params){
+  const { data, error } = await sb.rpc(name, params);
+  if (error) throw error;
+  return data;
+}
+
+/* ---------- data ---------- */
+async function loadAll(){
+  try{
+    const [p,g,h] = await Promise.all([
+      sb.from('people').select('*').order('full_name'),
+      sb.from('gifts').select('*').order('slot_number'),
+      sb.from('handouts').select('*').order('created_at',{ascending:false})
+    ]);
+    people = p.data||[]; gifts = g.data||[]; handouts = h.data||[];
+    setConn(true);
+  }catch(err){
+    console.error(err); setConn(false);
+    toast('Нет связи с базой — показаны последние данные');
+  }
+  render();
+}
+function setConn(ok){
+  $('#dot').className = 'dot' + (ok?'':' off');
+  $('#conn-txt').textContent = ok ? 'все устройства синхронизированы' : 'оффлайн (последние данные)';
+}
+function subscribe(){
+  sb.channel('sync-'+Math.random().toString(36).slice(2))
+    .on('postgres_changes',{event:'*',schema:'public',table:'people'}, loadAll)
+    .on('postgres_changes',{event:'*',schema:'public',table:'gifts'}, loadAll)
+    .on('postgres_changes',{event:'*',schema:'public',table:'handouts'}, loadAll)
+    .subscribe();
+}
+function personHandout(pid){ return handouts.find(h => h.person_id === pid); }
+
+/* ---------- views ---------- */
+function render(){
+  $('#s-people').textContent = `${people.filter(p=>p.received).length}/${people.length}`;
+  $('#s-gifts').textContent  = `${gifts.filter(g=>g.status==='given').length}/${gifts.length}`;
+  ({razdacha:renderRazdacha, podarki:renderPodarki, lyudi:renderLyudi, import:renderImport}[tab])();
+}
+
+function renderRazdacha(){
+  const q = searchQ.trim().toLowerCase();
+  let html = `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Введите ФИО участника…" autocomplete="off"></div>`;
+  if (!people.length){
+    html += `<div class="empty">Список участников пуст.<br>Загрузите его во вкладке «Импорт».</div>`;
+    $('#view').innerHTML = html; bindSearch(); return;
+  }
+  if (!q){
+    html += `<div class="hint">Начните вводить фамилию — появятся совпадения</div>`;
+    $('#view').innerHTML = html; bindSearch(); return;
+  }
+  const res = people.filter(p =>
+      p.full_name.toLowerCase().includes(q) ||
+      (p.phone && p.phone.includes(q)) ||
+      (p.member_number && p.member_number.toLowerCase().includes(q)) ||
+      (p.comment && p.comment.toLowerCase().includes(q)))
+    .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru')).slice(0,40);
+  html += `<div class="list">`;
+  if (!res.length) html += `<div class="empty">Нет в списке.<br>Только члены профсоюза из списка могут получить подарок.</div>`;
+  for (const p of res){
+    const h = personHandout(p.id);
+    const badge = p.received
+      ? `<span class="badge b-ok">✓ получил</span>`
+      : `<span class="badge b-no">не выдано</span>`;
+    const sub = p.received && h ? `Подарок: ${esc(h.gift_name)}` : (p.phone ? 'тел. ' + esc(p.phone) : '');
+    html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}<div class="sub">${esc(sub)}</div></div>${badge}</div>`;
+  }
+  html += `</div>`;
+  $('#view').innerHTML = html; bindSearch();
+  $('#view').querySelectorAll('.row').forEach(r=>r.onclick=()=>openPerson(+r.dataset.pid));
+}
+
+function renderPodarki(){
+  const map = new Map();
+  for (const g of gifts){
+    if (!map.has(g.name)) map.set(g.name,{name:g.name,total:0,avail:0,given:[]});
+    const t = map.get(g.name); t.total++;
+    if (g.status==='available') t.avail++; else {
+      const h = handouts.find(x=>x.gift_id===g.id);
+      t.given.push(h ? `${h.person_name} · ${fmt(h.created_at)}` : '—');
+    }
+  }
+  const types = [...map.values()].sort((a,b)=> (b.avail>0?0:1)-(a.avail>0?0:1) || a.name.localeCompare(b.name,'ru'));
+  let html = `<div class="hint">Подарки с привязкой к человеку (вычеркнутые — выданы)</div><div class="list">`;
+  for (const t of types){
+    html += `<div class="row"><div class="name">${esc(t.name)}<div class="sub">осталось ${t.avail} из ${t.total}</div></div>`+
+            (t.avail>0?`<span class="badge b-no">${t.avail}</span>`:`<span class="badge b-given">нет</span>`)+`</div>`;
+    for (const who of t.given) html += `<div class="row" style="padding-left:28px;box-shadow:none;background:#fafbfc"><div class="name struck" style="font-weight:500;font-size:15px">${esc(who)}</div></div>`;
+  }
+  html += `</div>`;
+  $('#view').innerHTML = html;
+}
+
+function renderLyudi(){
+  let html = `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Поиск по людям…" autocomplete="off"></div><div class="list">`;
+  const q = searchQ.trim().toLowerCase();
+  const list = (q ? people.filter(p=>p.full_name.toLowerCase().includes(q)||(p.phone&&p.phone.includes(q))||(p.comment&&p.comment.toLowerCase().includes(q))) : people)
+    .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru'));
+  if (!people.length) html += `<div class="empty">Список пуст. Загрузите во вкладке «Импорт».</div>`;
+  for (const p of list.slice(0,200)){
+    const h = personHandout(p.id);
+    const badge = p.received?`<span class="badge b-ok">✓ ${esc(h?h.gift_name:'')}</span>`:`<span class="badge b-no">не выдано</span>`;
+    const sub = [p.phone, p.comment].filter(Boolean).map(esc).join(' · ');
+    html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}${sub?`<div class="sub">${sub}</div>`:''}</div>${badge}</div>`;
+  }
+  html += `</div>`;
+  $('#view').innerHTML = html; bindSearch();
+  $('#view').querySelectorAll('.row').forEach(r=>r.onclick=()=>openPerson(+r.dataset.pid));
+}
+
+function renderImport(){
+  let html = `
+  <div class="sec">
+    <h3>Список участников</h3>
+    <div class="lbl">Вставьте список (по одному в строку). Форматы: «ФИО», «ФИО; телефон» или «номер; ФИО; телефон».</div>
+    <textarea id="paste" rows="6" placeholder="Иванов Иван Иванович
+Петрова Мария; +7911...
+002; Сидоров Алексей; +7922..."></textarea>
+    <div class="btn-row">
+      <button class="btn ghost" id="preview">Предпросмотр</button>
+      <button class="btn" id="doimport">Импортировать</button>
+    </div>
+    <div class="preview" id="prev"></div>
+    <div class="lbl" style="margin-top:12px">Или файл (CSV / Excel):</div>
+    <div class="filebtn btn ghost" style="display:block;text-align:center">Выбрать файл<input type="file" id="file" accept=".csv,.xlsx,.xls"></div>
+    <div class="lbl" style="margin-top:12px">Добавить одного:</div>
+    <input class="t" id="an" placeholder="ФИО">
+    <div class="btn-row"><input class="t" id="ap" placeholder="телефон (необяз.)" style="flex:1"><button class="btn" id="addp">+</button></div>
+  </div>
+
+  <div class="sec">
+    <h3>Добавить подарки</h3>
+    <div class="lbl">Название и количество (например, для строк 119–151 из PDF):</div>
+    <input class="t" id="gn" placeholder="Название подарка">
+    <div class="btn-row"><input class="t" id="gc" type="number" value="1" min="1" style="flex:1"><button class="btn" id="addg">Добавить</button></div>
+  </div>
+
+  <div class="sec">
+    <h3>Надёжность / бэкап</h3>
+    <div class="lbl">Все изменения хранятся в облаке (Supabase) и синхронизируются между устройствами. Скачайте копию на всякий случай:</div>
+    <div class="btn-row">
+      <button class="btn ghost" id="expjson">Скачать бэкап (JSON)</button>
+      <button class="btn ghost" id="expcsv">Лог выдачи (CSV)</button>
+    </div>
+    <div class="filebtn btn ghost mt" style="display:block;text-align:center">Восстановить из бэкапа (JSON)<input type="file" id="impjson" accept=".json"></div>
+    <div class="lbl" style="margin-top:12px">Имя оператора (пишется в лог):</div>
+    <input class="t" id="op" value="${esc(operatorName())}" placeholder="Волонтёр">
+    <div class="lbl" style="margin-top:12px;color:var(--danger)">Опасная зона:</div>
+    <button class="btn danger mt" id="clearp">Очистить список людей (не получивших)</button>
+  </div>`;
+  $('#view').innerHTML = html;
+  $('#preview').onclick = previewImport;
+  $('#doimport').onclick = doImport;
+  $('#file').onchange = importFile;
+  $('#addp').onclick = addPerson;
+  $('#addg').onclick = addGift;
+  $('#expjson').onclick = exportBackup;
+  $('#expcsv').onclick = exportHandoutsCSV;
+  $('#impjson').onchange = importBackup;
+  $('#op').onchange = e => { localStorage.setItem('operator', e.target.value.trim()); toast('Сохранено'); };
+  $('#clearp').onclick = clearPeople;
+}
+
+/* ---------- person modal ---------- */
+function openPerson(pid){
+  const p = people.find(x=>x.id===pid); if(!p) return;
+  selectedPersonId = pid; selectedGift = null;
+  const h = personHandout(pid);
+  let body;
+  if (p.received && h){
+    body = `<div class="banner bad">УЖЕ ПОЛУЧИЛ(А) ПОДАРОК</div>
+      <div class="kv">Подарок: <b>${esc(h.gift_name)}</b></div>
+      <div class="kv">Когда: <b>${fmt(h.created_at)}</b></div>
+      <div class="kv">Кто выдал: <b>${esc(h.operator||'—')}</b></div>
+      <button class="btn warn mt" id="undo">Отменить выдачу</button>`;
+  } else {
+    const types = giftTypes();
+    const cards = types.length ? types.map(t=>
+      `<div class="gift${selectedGift===t.name?' sel':''}" data-g="${esc(t.name)}">${esc(t.name)}<div class="gc">осталось ${t.avail}</div></div>`).join('')
+      : `<div class="empty">Нет доступных подарков</div>`;
+    body = `<div class="banner ok">МОЖНО ВЫДАТЬ</div>
+      <div class="kv">Выберите, что выдаёте:</div>
+      <div class="gifts">${cards}</div>
+      <button class="btn mt" id="give" disabled>${selectedGift?('Выдать: '+selectedGift):'Выберите подарок'}</button>`;
+  }
+  $('#modal').innerHTML = `<div class="overlay" id="ov"><div class="sheet" style="position:relative">
+    <button class="close" id="x">×</button>
+    <h2>${esc(p.full_name)}</h2>
+    ${p.phone?`<div class="kv">тел.: <b>${esc(p.phone)}</b></div>`:''}
+    ${body}
+    <div class="sec" style="margin-top:12px;box-shadow:none;border:1px solid var(--line)">
+      <div class="lbl">Телефон</div>
+      <input class="t" id="ephone" value="${esc(p.phone||'')}" placeholder="дозаписать телефон">
+      <div class="lbl" style="margin-top:8px">Комментарий (тег Telegram, примечание)</div>
+      <input class="t" id="ecomment" value="${esc(p.comment||'')}" placeholder="@username, примечание…">
+      <button class="btn ghost mt" id="savep">Сохранить</button>
+    </div>
+  </div></div>`;
+  $('#x').onclick = closeModal;
+  $('#ov').onclick = e=>{ if(e.target.id==='ov') closeModal(); };
+  if (p.received && h){ $('#undo').onclick = ()=>undoHandout(h.id); }
+  else {
+    $('#modal').querySelectorAll('.gift').forEach(c=>c.onclick=()=>{
+      selectedGift = c.dataset.g;
+      $('#modal').querySelectorAll('.gift').forEach(x=>x.classList.toggle('sel', x.dataset.g===selectedGift));
+      const btn = $('#give'); btn.disabled=false; btn.textContent='Выдать: '+selectedGift;
+    });
+    const give = $('#give');
+    if (give) give.onclick = ()=> selectedGift && giveGift(p, selectedGift);
+  }
+  $('#savep').onclick = ()=>savePerson(pid);
+}
+function closeModal(){ $('#modal').innerHTML=''; selectedPersonId=null; selectedGift=null; }
+
+async function giveGift(person, giftName){
+  try{
+    const r = await rpc('assign_gift', {p_person_id:person.id, p_gift_name:giftName, p_operator:operatorName()});
+    if (!r.ok){ toast(translateError(r.error)); closeModal(); return; }
+    toast(`✓ ${person.full_name} получил(а): ${giftName}`);
+  }catch(e){ console.error(e); toast('Ошибка выдачи: '+(e.message||e)); }
+  closeModal(); await loadAll();
+}
+async function undoHandout(id){
+  if (!confirm('Отменить выдачу? Подарок вернётся в список.')) return;
+  try{ await rpc('unassign_handout', {p_handout_id:id}); toast('Выдача отменена'); }
+  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  closeModal(); await loadAll();
+}
+async function savePerson(pid){
+  const phone = $('#ephone').value.trim()||null;
+  const comment = $('#ecomment').value.trim()||null;
+  try{ const {error}=await sb.from('people').update({phone, comment}).eq('id', pid); if(error) throw error; toast('Сохранено'); }
+  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  await loadAll();
+}
+
+/* ---------- gifts summary ---------- */
+function giftTypes(){
+  const map = new Map();
+  for (const g of gifts){
+    if (!map.has(g.name)) map.set(g.name,{name:g.name,avail:0});
+    if (g.status==='available') map.get(g.name).avail++;
+  }
+  return [...map.values()].filter(t=>t.avail>0).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+}
+
+/* ---------- import / export ---------- */
+function parsePeopleText(text){
+  const out = [];
+  for (let line of text.split(/\r?\n/)){
+    line = line.trim(); if (!line) continue;
+    const parts = line.split(/\t|;|,|\s{2,}/).map(s=>s.trim()).filter(Boolean);
+    if (!parts.length) continue;
+    let full_name = parts[0], phone = null, member = null;
+    for (const p of parts.slice(1)){
+      if (/^\+?\d[\d\s\-()]{5,}$/.test(p)) phone = p;
+      else if (/^\d{1,6}$/.test(p)) member = p;
+      else if (!full_name || full_name==='') full_name = p;
+    }
+    if (full_name) out.push({full_name, phone, member_number:member});
+  }
+  return out;
+}
+function previewImport(){
+  const rows = parsePeopleText($('#paste').value);
+  const existing = new Set(people.map(p=>p.full_name.toLowerCase()));
+  const newOnes = rows.filter(r=>!existing.has(r.full_name.toLowerCase()));
+  $('#prev').textContent = `Найдено строк: ${rows.length}\nНовых (не в списке): ${newOnes.length}\nПримеры:\n` +
+    newOnes.slice(0,8).map(r=>`• ${r.full_name}${r.phone?' | '+r.phone:''}${r.member_number?' | №'+r.member_number:''}`).join('\n');
+}
+async function doImport(){
+  const rows = parsePeopleText($('#paste').value);
+  if (!rows.length){ toast('Пусто'); return; }
+  const existing = new Set(people.map(p=>p.full_name.toLowerCase()));
+  const fresh = rows.filter(r=>!existing.has(r.full_name.toLowerCase()));
+  if (!fresh.length){ toast('Все уже в списке'); return; }
+  try{
+    const ins = fresh.map(r=>({full_name:r.full_name, phone:r.phone||null, member_number:r.member_number||null}));
+    const { error } = await sb.from('people').insert(ins);
+    if (error) throw error;
+    toast(`Добавлено ${fresh.length} чел.`);
+    $('#paste').value=''; $('#prev').textContent='';
+  }catch(e){ console.error(e); toast('Ошибка импорта: '+(e.message||e)); }
+  await loadAll();
+}
+async function importFile(e){
+  const f = e.target.files[0]; if (!f) return;
+  try{
+    const buf = await f.arrayBuffer();
+    let rows = [];
+    if (f.name.endsWith('.csv')){
+      const text = new TextDecoder('utf-8').decode(buf);
+      rows = parseCSV(text);
+    } else {
+      const wb = XLSX.read(buf, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      rows = rows.map(r=>{
+        const obj = {};
+        for (const k in r){
+          const key = k.toLowerCase();
+          if (/(фио|фамил|имя|name)/.test(key)) obj.full_name = String(r[k]).trim();
+          else if (/(тел|phone|моб)/.test(key)) obj.phone = String(r[k]).trim();
+          else if (/(номер|number|№|табел|id)/.test(key)) obj.member_number = String(r[k]).trim();
         }
-        
-        // Добавляем CSS для анимации снежинок
-        const styleSheet = document.createElement('style');
-        styleSheet.textContent = `
-            @keyframes fall {
-                0% {
-                    transform: translateY(-100px) rotate(0deg);
-                    opacity: 0.8;
-                }
-                100% {
-                    transform: translateY(100vh) rotate(360deg);
-                    opacity: 0;
-                }
-            }
-        `;
-        document.head.appendChild(styleSheet);
-        
-        // Автоматическое открытие письма через 3 секунды, если пользователь не открыл его
-        setTimeout(() => {
-            if (!letter.classList.contains('open')) {
-                envelope.click();
-            }
-        }, 3000);
-    </script>
+        return obj;
+      }).filter(r=>r.full_name);
+    }
+    const existing = new Set(people.map(p=>p.full_name.toLowerCase()));
+    const fresh = rows.filter(r=>r.full_name && !existing.has(r.full_name.toLowerCase()));
+    if (!fresh.length){ toast('Нет новых строк'); return; }
+    const { error } = await sb.from('people').insert(fresh.map(r=>({full_name:r.full_name, phone:r.phone||null, member_number:r.member_number||null})));
+    if (error) throw error;
+    toast(`Импортировано ${fresh.length} чел.`);
+  }catch(err){ console.error(err); toast('Ошибка файла: '+(err.message||err)); }
+  await loadAll();
+}
+function parseCSV(text){
+  const rows = []; let cur = '', row = [], inq = false;
+  for (let i=0;i<text.length;i++){
+    const c = text[i];
+    if (inq){ if (c==='"'){ if (text[i+1]==='"'){cur+='"';i++;} else inq=false; } else cur+=c; }
+    else { if (c==='"') inq=true; else if (c===','){ row.push(cur); cur=''; } else if (c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n')i++; row.push(cur); rows.push(row); row=[]; cur=''; } else cur+=c; }
+  }
+  if (cur!==''||row.length){ row.push(cur); rows.push(row); }
+  const out = [];
+  for (const r of rows){
+    if (!r.length || r.every(x=>!x.trim())) continue;
+    const head = r.map(x=>x.trim().toLowerCase());
+    if (head.some(h=>/(фио|фамил|имя|name)/.test(h))){
+      // header row – map by index for subsequent data rows after this? simpler: skip and rely on positional
+      continue;
+    }
+    const name = r[0] ? r[0].trim() : '';
+    let phone=null, member=null;
+    for (let i=1;i<r.length;i++){ const v=r[i].trim(); if(/^\+?\d[\d\s\-()]{5,}$/.test(v)) phone=v; else if(/^\d{1,6}$/.test(v)) member=v; }
+    if (name) out.push({full_name:name, phone, member_number:member});
+  }
+  return out;
+}
+async function addPerson(){
+  const name = $('#an').value.trim(); if (!name){ toast('Введите ФИО'); return; }
+  const phone = $('#ap').value.trim()||null;
+  try{ const {error}=await sb.from('people').insert({full_name:name, phone}); if(error) throw error; toast('Добавлен(а)'); $('#an').value=''; $('#ap').value=''; }
+  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  await loadAll();
+}
+async function addGift(){
+  const name = $('#gn').value.trim(); const n = Math.max(1, parseInt($('#gc').value)||1);
+  if (!name){ toast('Введите название'); return; }
+  try{ const {error}=await sb.from('gifts').insert(Array.from({length:n},()=>({name}))); if(error) throw error; toast(`Добавлено ${n}× ${name}`); $('#gn').value=''; }
+  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  await loadAll();
+}
+async function clearPeople(){
+  if (!confirm('Удалить всех, кто ещё НЕ получил подарок? Получившие останутся.')) return;
+  try{ const {error}=await sb.from('people').delete().eq('received',false); if(error) throw error; toast('Очищено'); }
+  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  await loadAll();
+}
+function download(name, content, type){
+  const blob = new Blob([content], {type}); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+function exportBackup(){
+  const data = {exported_at:new Date().toISOString(), people, gifts, handouts};
+  download('razdadcha-backup-'+Date.now()+'.json', JSON.stringify(data,null,2), 'application/json');
+}
+function exportHandoutsCSV(){
+  const head = 'ФИО;Подарок;Когда;Кто выдал\n';
+  const body = handouts.map(h=>`${h.person_name};${h.gift_name};${h.created_at};${h.operator||''}`).join('\n');
+  download('log-vydachi-'+Date.now()+'.csv', head+body, 'text/csv;charset=utf-8');
+}
+async function importBackup(e){
+  const f = e.target.files[0]; if (!f) return;
+  try{
+    const data = JSON.parse(await f.text());
+    if (data.people) await sb.from('people').insert(data.people.map(({id,...r})=>r));
+    if (data.gifts) await sb.from('gifts').insert(data.gifts.map(({id,...r})=>r));
+    if (data.handouts) await sb.from('handouts').insert(data.handouts.map(({id,...r})=>r));
+    toast('Бэкап восстановлен');
+  }catch(err){ console.error(err); toast('Ошибка восстановления: '+(err.message||err)); }
+  await loadAll();
+}
+
+/* ---------- search bind ---------- */
+function bindSearch(){
+  const inp = $('#q'); if (!inp) return;
+  inp.oninput = e => { searchQ = e.target.value; render(); const n=$('#q'); if(n) n.focus(); };
+  setTimeout(()=>inp.focus(), 50);
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); tab = t.dataset.tab; searchQ=''; render();
+});
+
+/* ---------- boot ---------- */
+(async function boot(){
+  if (!window.supabase){ document.getElementById('view').innerHTML='<div class="empty">Не удалось загрузить библиотеку Supabase (нужен интернет).</div>'; return; }
+  await loadAll();
+  subscribe();
+  setInterval(loadAll, 60000); // периодическая перепроверка на всякий случай
+})();
+</script>
 </body>
 </html>
