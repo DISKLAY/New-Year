@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Раздача подарков</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -21,15 +21,14 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
     background:var(--bg);
     background-image:radial-gradient(1200px 560px at 50% -160px,#fff6e4 0%,rgba(255,246,228,0) 62%),linear-gradient(180deg,#f9f3e9 0%,#f2e8d6 100%);
-    background-attachment:fixed;
-    color:var(--ink);font-size:17px;line-height:1.45;
+        color:var(--ink);font-size:17px;line-height:1.45;
     padding-bottom:env(safe-area-inset-bottom);
   }
   ::selection{background:#f0d9b8;color:var(--ink)}
   ::-webkit-scrollbar{width:8px;height:8px}
   ::-webkit-scrollbar-thumb{background:#e0d2b4;border-radius:8px}
   ::-webkit-scrollbar-track{background:transparent}
-  .wrap{max-width:760px;margin:0 auto;padding:12px 14px 112px}
+  .wrap{max-width:760px;margin:0 auto;padding:calc(12px + env(safe-area-inset-top)) 14px calc(112px + env(safe-area-inset-bottom))}
 
   /* приятная тёплая шапка */
   .app-head{display:flex;align-items:center;gap:12px;padding:4px 2px 14px}
@@ -37,7 +36,7 @@
   .app-head h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em;color:var(--ink)}
 
   /* sticky-верх: счётчики, оператор, связь */
-  .top{position:sticky;top:0;z-index:20;background:var(--bg);padding:6px 0 10px}
+  .top{position:sticky;top:0;z-index:20;background:var(--bg);padding:calc(6px + env(safe-area-inset-top)) 0 10px}
   .stats{display:flex;gap:10px}
   .stat{flex:1;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:12px 12px;box-shadow:var(--shadow);text-align:center;display:flex;flex-direction:column;align-items:center;gap:1px}
   .stat .st-ic{font-size:20px;line-height:1}
@@ -61,7 +60,7 @@
   .op-default{color:var(--warn)}
 
   /* поиск — мягкая «капелька» */
-  .search{position:sticky;top:140px;z-index:15;background:transparent;padding:8px 0 10px}
+  .search{position:sticky;top:140px;z-index:15;background:var(--bg);padding:8px 0 10px}
   .search input{width:100%;font-size:17px;padding:14px 18px;border:2px solid var(--line);border-radius:18px;background:var(--card);box-shadow:var(--shadow);outline:none;transition:border-color .18s,box-shadow .18s}
   .search input:focus{border-color:var(--accent);box-shadow:0 0 0 4px rgba(199,106,46,.14)}
 
@@ -120,13 +119,13 @@
   .kv b{color:var(--ink)}
 
   /* плавающая панель вкладок */
-  .tabs{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:40;display:flex;gap:4px;width:calc(100% - 24px);max-width:720px;background:rgba(255,253,248,.88);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:24px;padding:6px;box-shadow:0 10px 30px rgba(120,85,45,.18)}
+  .tabs{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:40;display:flex;gap:4px;width:calc(100% - 24px);max-width:720px;background:rgba(255,253,248,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:24px;padding:6px;padding-bottom:calc(6px + env(safe-area-inset-bottom));box-shadow:0 10px 30px rgba(120,85,45,.22)}
   .tab{flex:1;border:none;background:none;font-size:12px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;border-radius:20px;cursor:pointer;transition:color .18s,background .18s}
   .tab .ic{font-size:21px}
   .tab.active{color:var(--accent);background:var(--accent-soft)}
 
   /* Импорт — шестеренка в углу */
-  .gearbtn{position:fixed;top:10px;right:10px;z-index:45;width:46px;height:46px;border-radius:16px;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:23px;line-height:1;padding:0;transition:transform .12s,box-shadow .18s,background .18s}
+  .gearbtn{position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:45;width:46px;height:46px;border-radius:16px;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:23px;line-height:1;padding:0;transition:transform .12s,box-shadow .18s,background .18s}
   .gearbtn:hover{transform:translateY(-1px)}
   .gearbtn:active{transform:scale(.95)}
   .gearbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 4px rgba(199,106,46,.18)}
