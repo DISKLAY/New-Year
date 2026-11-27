@@ -2,10 +2,9 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Раздача подарков</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#eef1f4; --card:#ffffff; --ink:#1f2730; --muted:#6b7785;
@@ -27,9 +26,12 @@
   .stat{flex:1;background:var(--card);border-radius:14px;padding:10px 12px;box-shadow:var(--shadow);text-align:center}
   .stat b{display:block;font-size:22px;line-height:1.1}
   .stat span{font-size:12px;color:var(--muted)}
-  .conn{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:var(--muted);margin-top:6px}
+  .conn{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
   .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(31,157,85,.18)}
   .dot.off{background:#bbb;box-shadow:none}
+  .dot.warn{background:var(--warn);box-shadow:0 0 0 3px rgba(224,150,43,.18)}
+  .offline-banner{display:none;background:#fdf2e0;color:#8a5a12;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600;text-align:center;margin-top:8px}
+  .offline-banner.show{display:block}
   /* search */
   .search{position:sticky;top:74px;z-index:15;background:var(--bg);padding:6px 0 8px}
   .search input{width:100%;font-size:20px;padding:14px 16px;border:1px solid var(--line);border-radius:16px;
@@ -104,7 +106,8 @@
       <div class="stat"><b id="s-people">0/0</b><span>получили</span></div>
       <div class="stat"><b id="s-gifts">0/0</b><span>выдано</span></div>
     </div>
-    <div class="conn"><span class="dot" id="dot"></span><span id="conn-txt">подключение…</span></div>
+    <div class="conn"><span class="dot" id="dot"></span><span id="conn-txt">подключение…</span><span id="queue-txt"></span></div>
+    <div class="offline-banner" id="offline-banner"></div>
   </div>
 
   <div id="view"></div>
@@ -125,19 +128,26 @@
 const SUPABASE_URL = 'https://vvdegrbjngcgxffqykvj.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_5o7z5unD-XLsOXriTBKPEw_e_bRmbK5';
 
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON) : null;
 
 let people = [], gifts = [], handouts = [];
 let tab = 'razdacha';
 let searchQ = '';
 let selectedPersonId = null;
 let selectedGift = null;
+let giving = false;           // защита от двойного тапа
+let lastLoadOk = false;
+let realtimeStatus = 'CONNECTING';
+let loadTimer = null;
+let cacheAt = null;
 
 /* ---------- helpers ---------- */
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = ts => ts ? new Intl.DateTimeFormat('ru-RU',{dateStyle:'short',timeStyle:'short'}).format(new Date(ts)) : '';
-function operatorName(){ return localStorage.getItem('operator') || 'Волонтёр'; }
+const normName = s => String(s||'').trim().replace(/\s+/g,' ');
+const normKey = s => normName(s).toLowerCase();
+function operatorName(){ return (localStorage.getItem('operator') || 'Волонтёр').slice(0,100); }
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.style.display='block';
   clearTimeout(toast._t); toast._t = setTimeout(()=>t.style.display='none', 2600);
@@ -146,7 +156,9 @@ function translateError(e){
   return ({already_received:'Уже получил(а) подарок',
            person_not_found:'Человек не найден',
            no_gift_available:'Таких подарков больше нет',
-           handout_not_found:'Запись не найдена'})[e] || e;
+           handout_not_found:'Запись не найдена',
+           inconsistent_state:'Данные разошлись — обратитесь к диспетчеру',
+           invalid_input:'Некорректные данные'})[e] || e;
 }
 async function rpc(name, params){
   const { data, error } = await sb.rpc(name, params);
@@ -154,32 +166,161 @@ async function rpc(name, params){
   return data;
 }
 
+/* ---------- офлайн-кэш и очередь ---------- */
+function saveCache(){
+  try{
+    localStorage.setItem('cache', JSON.stringify({at: Date.now(), people, gifts, handouts}));
+    cacheAt = Date.now();
+  }catch(e){ /* переполнение — игнорируем */ }
+}
+function loadCache(){
+  try{
+    const c = JSON.parse(localStorage.getItem('cache') || 'null');
+    if (!c) return false;
+    people = c.people||[]; gifts = c.gifts||[]; handouts = c.handouts||[];
+    cacheAt = c.at || null;
+    return true;
+  }catch(e){ return false; }
+}
+function getQueue(){
+  try{ return JSON.parse(localStorage.getItem('pendingOps') || '[]'); }catch(e){ return []; }
+}
+function setQueue(q){
+  try{ localStorage.setItem('pendingOps', JSON.stringify(q)); }catch(e){}
+  updateQueueBadge();
+}
+function enqueue(op){
+  const q = getQueue(); q.push(op); setQueue(q);
+  toast('Нет связи — операция в очереди, отправится автоматически');
+}
+function getFailed(){
+  try{ return JSON.parse(localStorage.getItem('failedOps') || '[]'); }catch(e){ return []; }
+}
+function setFailed(f){
+  try{ localStorage.setItem('failedOps', JSON.stringify(f)); }catch(e){}
+  updateQueueBadge();
+}
+function failOp(op, reason){
+  const f = getFailed();
+  f.push({...op, failed_at: Date.now(), reason});
+  setFailed(f);
+  toast(`Не отправилось: ${reason} (${op.person_name||op.gift_name||''}) — проверьте вкладку «Импорт»`);
+}
+function updateQueueBadge(){
+  const n = getQueue().length;
+  const m = getFailed().length;
+  $('#queue-txt').textContent = (n ? `· в очереди: ${n}` : '') + (m ? ` · не отправилось: ${m}` : '');
+}
+async function processQueue(){
+  const q = getQueue();
+  if (!q.length) return;
+  const rest = [];
+  let hadFailure = false;
+  for (const op of q){
+    try{
+      let r = null;
+      if (op.type === 'give'){
+        r = await rpc('assign_gift', {p_person_id: op.person_id, p_gift_name: op.gift_name, p_operator: op.operator});
+      } else if (op.type === 'undo'){
+        r = await rpc('unassign_handout', {p_handout_id: op.handout_id});
+      } else if (op.type === 'contact'){
+        r = await rpc('update_person_contact', {p_person_id: op.person_id, p_phone: op.phone, p_comment: op.comment});
+      }
+      if (r && !r.ok){
+        // Бизнес-конфликт (уже получил / подарков нет): не ретраим бесконечно,
+        // а сохраняем в «не отправилось» для ручного разбора.
+        failOp(op, translateError(r.error));
+        hadFailure = true;
+      }
+    }catch(e){
+      // Сеть снова пропала — оставляем эту и все следующие в очереди
+      rest.push(op);
+      const idx = q.indexOf(op);
+      for (let j = idx + 1; j < q.length; j++) rest.push(q[j]);
+      break;
+    }
+  }
+  setQueue(rest);
+  if (q.length) await loadAll();
+}
+
 /* ---------- data ---------- */
+async function fetchAll(table, orders){
+  const pageSize = 1000;
+  let from = 0, all = [];
+  while (true){
+    let q = sb.from(table).select('*');
+    for (const [col, asc] of orders) q = q.order(col, {ascending: asc});
+    q = q.range(from, from + pageSize - 1);
+    const { data, error } = await q;
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
 async function loadAll(){
+  if (!sb) return;
   try{
     const [p,g,h] = await Promise.all([
-      sb.from('people').select('*').order('full_name'),
-      sb.from('gifts').select('*').order('slot_number'),
-      sb.from('handouts').select('*').order('created_at',{ascending:false})
+      fetchAll('people', [['full_name', true], ['id', true]]),
+      fetchAll('gifts', [['slot_number', true], ['id', true]]),
+      fetchAll('handouts', [['created_at', false], ['id', false]])
     ]);
-    people = p.data||[]; gifts = g.data||[]; handouts = h.data||[];
-    setConn(true);
+    people = p; gifts = g; handouts = h;
+    lastLoadOk = true;
+    saveCache();
   }catch(err){
-    console.error(err); setConn(false);
-    toast('Нет связи с базой — показаны последние данные');
+    console.error(err);
+    lastLoadOk = false;
+    if (!people.length && !loadCache()){
+      toast('Нет связи с базой');
+    } else {
+      toast('Нет связи — показаны последние данные');
+    }
   }
+  updateConn();
   render();
 }
-function setConn(ok){
-  $('#dot').className = 'dot' + (ok?'':' off');
-  $('#conn-txt').textContent = ok ? 'все устройства синхронизированы' : 'оффлайн (последние данные)';
+function updateConn(){
+  const dot = $('#dot'), txt = $('#conn-txt'), banner = $('#offline-banner');
+  const online = navigator.onLine;
+  if (!online){
+    dot.className = 'dot off';
+    txt.textContent = 'оффлайн (последние данные)';
+    banner.textContent = cacheAt ? `Офлайн. Показаны данные на ${fmt(new Date(cacheAt))}. Выдачи ставятся в очередь.` : 'Офлайн. Выдачи ставятся в очередь.';
+    banner.classList.add('show');
+  } else if (!lastLoadOk){
+    dot.className = 'dot off';
+    txt.textContent = 'нет связи с базой';
+    banner.classList.remove('show');
+  } else if (realtimeStatus === 'SUBSCRIBED'){
+    dot.className = 'dot';
+    txt.textContent = 'все устройства синхронизированы';
+    banner.classList.remove('show');
+  } else if (realtimeStatus === 'CHANNEL_ERROR' || realtimeStatus === 'TIMED_OUT' || realtimeStatus === 'CLOSED'){
+    dot.className = 'dot warn';
+    txt.textContent = 'realtime переподключается…';
+    banner.classList.remove('show');
+  } else {
+    dot.className = 'dot warn';
+    txt.textContent = 'подключение…';
+    banner.classList.remove('show');
+  }
+  updateQueueBadge();
+}
+function scheduleLoad(){
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(loadAll, 300);
 }
 function subscribe(){
-  sb.channel('sync-'+Math.random().toString(36).slice(2))
-    .on('postgres_changes',{event:'*',schema:'public',table:'people'}, loadAll)
-    .on('postgres_changes',{event:'*',schema:'public',table:'gifts'}, loadAll)
-    .on('postgres_changes',{event:'*',schema:'public',table:'handouts'}, loadAll)
-    .subscribe();
+  if (!sb) return;
+  sb.channel('sync')
+    .on('postgres_changes',{event:'*',schema:'public',table:'people'}, scheduleLoad)
+    .on('postgres_changes',{event:'*',schema:'public',table:'gifts'}, scheduleLoad)
+    .on('postgres_changes',{event:'*',schema:'public',table:'handouts'}, scheduleLoad)
+    .subscribe(status => { realtimeStatus = status; updateConn(); });
 }
 function personHandout(pid){ return handouts.find(h => h.person_id === pid); }
 
@@ -190,36 +331,58 @@ function render(){
   ({razdacha:renderRazdacha, podarki:renderPodarki, lyudi:renderLyudi, import:renderImport}[tab])();
 }
 
-function renderRazdacha(){
+/* Поиск: инпут создаётся один раз, при вводе обновляется ТОЛЬКО список.
+   Старая версия перерендеривала весь экран на каждую букву — из-за этого
+   текст «стирался», курсор прыгал, на мобильных клавиатура дёргалась. */
+function searchListHTML(){
   const q = searchQ.trim().toLowerCase();
-  let html = `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Введите ФИО участника…" autocomplete="off"></div>`;
-  if (!people.length){
-    html += `<div class="empty">Список участников пуст.<br>Загрузите его во вкладке «Импорт».</div>`;
-    $('#view').innerHTML = html; bindSearch(); return;
-  }
-  if (!q){
-    html += `<div class="hint">Начните вводить фамилию — появятся совпадения</div>`;
-    $('#view').innerHTML = html; bindSearch(); return;
-  }
+  if (!people.length) return `<div class="empty">Список участников пуст.<br>Загрузите его во вкладке «Импорт».</div>`;
+  if (!q) return `<div class="hint">Начните вводить фамилию — появятся совпадения</div>`;
   const res = people.filter(p =>
       p.full_name.toLowerCase().includes(q) ||
       (p.phone && p.phone.includes(q)) ||
       (p.member_number && p.member_number.toLowerCase().includes(q)) ||
       (p.comment && p.comment.toLowerCase().includes(q)))
     .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru')).slice(0,40);
-  html += `<div class="list">`;
-  if (!res.length) html += `<div class="empty">Нет в списке.<br>Только члены профсоюза из списка могут получить подарок.</div>`;
+  if (!res.length) return `<div class="empty">Нет в списке.<br>Только члены профсоюза из списка могут получить подарок.</div>`;
+  let html = `<div class="list">`;
   for (const p of res){
     const h = personHandout(p.id);
     const badge = p.received
       ? `<span class="badge b-ok">✓ получил</span>`
       : `<span class="badge b-no">не выдано</span>`;
-    const sub = p.received && h ? `Подарок: ${esc(h.gift_name)}` : (p.phone ? 'тел. ' + esc(p.phone) : '');
+    const sub = p.received && h ? `Подарок: ${h.gift_name}` : (p.phone ? 'тел. ' + p.phone : '');
     html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}<div class="sub">${esc(sub)}</div></div>${badge}</div>`;
   }
   html += `</div>`;
-  $('#view').innerHTML = html; bindSearch();
-  $('#view').querySelectorAll('.row').forEach(r=>r.onclick=()=>openPerson(+r.dataset.pid));
+  return html;
+}
+function renderRazdacha(){
+  $('#view').innerHTML =
+    `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Введите ФИО участника…" autocomplete="off" enterkeyhint="search"></div>` +
+    `<div id="list">${searchListHTML()}</div>`;
+  bindSearch();
+}
+function renderLyudiList(){
+  const q = searchQ.trim().toLowerCase();
+  const list = (q ? people.filter(p=>p.full_name.toLowerCase().includes(q)||(p.phone&&p.phone.includes(q))||(p.comment&&p.comment.toLowerCase().includes(q))) : people)
+    .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru'));
+  if (!people.length) return `<div class="empty">Список пуст. Загрузите во вкладке «Импорт».</div>`;
+  let html = `<div class="list">`;
+  for (const p of list.slice(0,200)){
+    const h = personHandout(p.id);
+    const badge = p.received?`<span class="badge b-ok">✓ ${esc(h?h.gift_name:'')}</span>`:`<span class="badge b-no">не выдано</span>`;
+    const sub = [p.phone, p.comment].filter(Boolean).join(' · ');
+    html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}${sub?`<div class="sub">${esc(sub)}</div>`:''}</div>${badge}</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+function renderLyudi(){
+  $('#view').innerHTML =
+    `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Поиск по людям…" autocomplete="off" enterkeyhint="search"></div>` +
+    `<div id="list">${renderLyudiList()}</div>`;
+  bindSearch();
 }
 
 function renderPodarki(){
@@ -243,25 +406,24 @@ function renderPodarki(){
   $('#view').innerHTML = html;
 }
 
-function renderLyudi(){
-  let html = `<div class="search"><input id="q" value="${esc(searchQ)}" placeholder="Поиск по людям…" autocomplete="off"></div><div class="list">`;
-  const q = searchQ.trim().toLowerCase();
-  const list = (q ? people.filter(p=>p.full_name.toLowerCase().includes(q)||(p.phone&&p.phone.includes(q))||(p.comment&&p.comment.toLowerCase().includes(q))) : people)
-    .sort((a,b)=>a.full_name.localeCompare(b.full_name,'ru'));
-  if (!people.length) html += `<div class="empty">Список пуст. Загрузите во вкладке «Импорт».</div>`;
-  for (const p of list.slice(0,200)){
-    const h = personHandout(p.id);
-    const badge = p.received?`<span class="badge b-ok">✓ ${esc(h?h.gift_name:'')}</span>`:`<span class="badge b-no">не выдано</span>`;
-    const sub = [p.phone, p.comment].filter(Boolean).map(esc).join(' · ');
-    html += `<div class="row" data-pid="${p.id}"><div class="name">${esc(p.full_name)}${sub?`<div class="sub">${sub}</div>`:''}</div>${badge}</div>`;
-  }
+function failedOpsHTML(){
+  const f = getFailed();
+  if (!f.length) return '';
+  let html = `<div class="sec" style="border:2px solid var(--warn)">
+    <h3>⚠️ Не удалось отправить (${f.length})</h3>
+    <div class="lbl">Эти операции были в офлайн-очереди, но при отправке возник конфликт (например, другой волонтёр уже выдал подарок). Проверьте вручную: что физически выдано, что записано в системе.</div>`;
+  f.forEach((op, i)=>{
+    const what = op.type === 'give' ? `Выдать «${op.gift_name}» → ${op.person_name||op.person_id}`
+      : op.type === 'undo' ? `Отменить выдачу #${op.handout_id}`
+      : `Контакт #${op.person_id}`;
+    html += `<div class="kv" style="margin-top:6px">${esc(what)}<br><span style="color:var(--danger)">${esc(op.reason||'ошибка')} · ${fmt(new Date(op.failed_at))}</span></div>
+      <div class="btn-row"><button class="btn ghost" data-retry="${i}">Повторить</button><button class="btn ghost" data-drop="${i}">Убрать</button></div>`;
+  });
   html += `</div>`;
-  $('#view').innerHTML = html; bindSearch();
-  $('#view').querySelectorAll('.row').forEach(r=>r.onclick=()=>openPerson(+r.dataset.pid));
+  return html;
 }
-
 function renderImport(){
-  let html = `
+  let html = failedOpsHTML() + `
   <div class="sec">
     <h3>Список участников</h3>
     <div class="lbl">Вставьте список (по одному в строку). Форматы: «ФИО», «ФИО; телефон» или «номер; ФИО; телефон».</div>
@@ -284,7 +446,7 @@ function renderImport(){
     <h3>Добавить подарки</h3>
     <div class="lbl">Название и количество (например, для строк 119–151 из PDF):</div>
     <input class="t" id="gn" placeholder="Название подарка">
-    <div class="btn-row"><input class="t" id="gc" type="number" value="1" min="1" style="flex:1"><button class="btn" id="addg">Добавить</button></div>
+    <div class="btn-row"><input class="t" id="gc" type="number" value="1" min="1" max="500" style="flex:1"><button class="btn" id="addg">Добавить</button></div>
   </div>
 
   <div class="sec">
@@ -309,8 +471,17 @@ function renderImport(){
   $('#expjson').onclick = exportBackup;
   $('#expcsv').onclick = exportHandoutsCSV;
   $('#impjson').onchange = importBackup;
-  $('#op').onchange = e => { localStorage.setItem('operator', e.target.value.trim()); toast('Сохранено'); };
+  $('#op').onchange = e => { localStorage.setItem('operator', e.target.value.trim().slice(0,100)); toast('Сохранено'); };
   $('#clearp').onclick = clearPeople;
+  $('#view').querySelectorAll('[data-retry]').forEach(b=>b.onclick=async ()=>{
+    const f = getFailed(); const op = f[+b.dataset.retry]; if (!op) return;
+    f.splice(+b.dataset.retry, 1); setFailed(f);
+    const q = getQueue(); q.push(op); setQueue(q);
+    toast('Возвращено в очередь'); await processQueue(); render();
+  });
+  $('#view').querySelectorAll('[data-drop]').forEach(b=>b.onclick=()=>{
+    const f = getFailed(); f.splice(+b.dataset.drop, 1); setFailed(f); render();
+  });
 }
 
 /* ---------- person modal ---------- */
@@ -333,7 +504,7 @@ function openPerson(pid){
     body = `<div class="banner ok">МОЖНО ВЫДАТЬ</div>
       <div class="kv">Выберите, что выдаёте:</div>
       <div class="gifts">${cards}</div>
-      <button class="btn mt" id="give" disabled>${selectedGift?('Выдать: '+selectedGift):'Выберите подарок'}</button>`;
+      <button class="btn mt" id="give" disabled>${selectedGift?('Выдать: '+esc(selectedGift)):'Выберите подарок'}</button>`;
   }
   $('#modal').innerHTML = `<div class="overlay" id="ov"><div class="sheet" style="position:relative">
     <button class="close" id="x">×</button>
@@ -365,24 +536,53 @@ function openPerson(pid){
 function closeModal(){ $('#modal').innerHTML=''; selectedPersonId=null; selectedGift=null; }
 
 async function giveGift(person, giftName){
+  if (giving) return;
+  giving = true;
+  const btn = $('#give');
+  if (btn){ btn.disabled = true; btn.textContent = 'Выдаём…'; }
   try{
     const r = await rpc('assign_gift', {p_person_id:person.id, p_gift_name:giftName, p_operator:operatorName()});
-    if (!r.ok){ toast(translateError(r.error)); closeModal(); return; }
+    if (!r.ok){
+      toast(translateError(r.error));
+      if (r.error === 'already_received'){
+        closeModal(); await loadAll();
+        openPerson(person.id); // показать, что уже выдано и кем
+        return;
+      }
+      closeModal(); return;
+    }
     toast(`✓ ${person.full_name} получил(а): ${giftName}`);
-  }catch(e){ console.error(e); toast('Ошибка выдачи: '+(e.message||e)); }
+  }catch(e){
+    console.error(e);
+    // Любая сетевая ошибка (не только navigator.onLine=false: Wi-Fi есть, интернета нет)
+    // — в очередь. Бизнес-ошибки сюда не попадают, они возвращаются как {ok:false}.
+    enqueue({type:'give', person_id: person.id, gift_name: giftName, operator: operatorName(), person_name: person.full_name});
+  }finally{ giving = false; }
   closeModal(); await loadAll();
 }
 async function undoHandout(id){
   if (!confirm('Отменить выдачу? Подарок вернётся в список.')) return;
-  try{ await rpc('unassign_handout', {p_handout_id:id}); toast('Выдача отменена'); }
-  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  try{
+    const r = await rpc('unassign_handout', {p_handout_id:id});
+    if (!r.ok){ toast(translateError(r.error)); return; }
+    toast('Выдача отменена');
+  }catch(e){
+    console.error(e);
+    enqueue({type:'undo', handout_id: id});
+  }
   closeModal(); await loadAll();
 }
 async function savePerson(pid){
   const phone = $('#ephone').value.trim()||null;
   const comment = $('#ecomment').value.trim()||null;
-  try{ const {error}=await sb.from('people').update({phone, comment}).eq('id', pid); if(error) throw error; toast('Сохранено'); }
-  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  try{
+    const r = await rpc('update_person_contact', {p_person_id: pid, p_phone: phone, p_comment: comment});
+    if (!r.ok) throw new Error(translateError(r.error));
+    toast('Сохранено');
+  }catch(e){
+    console.error(e);
+    enqueue({type:'contact', person_id: pid, phone, comment});
+  }
   await loadAll();
 }
 
@@ -397,115 +597,197 @@ function giftTypes(){
 }
 
 /* ---------- import / export ---------- */
+function isPhone(s){ return /^\+?\d[\d\s\-()]{5,}$/.test(s); }
+function isMember(s){ return /^\d{1,6}$/.test(s); }
+function classifyParts(parts){
+  let full_name = null, phone = null, member = null;
+  for (const p of parts){
+    if (!p) continue;
+    if (isPhone(p) && !phone) phone = p;
+    else if (isMember(p) && !member) member = p;
+    else if (!full_name) full_name = p;
+  }
+  if (full_name) full_name = normName(full_name);
+  return full_name ? {full_name, phone, member_number: member} : null;
+}
 function parsePeopleText(text){
   const out = [];
-  for (let line of text.split(/\r?\n/)){
+  for (let line of String(text||'').split(/\r?\n/)){
     line = line.trim(); if (!line) continue;
     const parts = line.split(/\t|;|,|\s{2,}/).map(s=>s.trim()).filter(Boolean);
-    if (!parts.length) continue;
-    let full_name = parts[0], phone = null, member = null;
-    for (const p of parts.slice(1)){
-      if (/^\+?\d[\d\s\-()]{5,}$/.test(p)) phone = p;
-      else if (/^\d{1,6}$/.test(p)) member = p;
-      else if (!full_name || full_name==='') full_name = p;
-    }
-    if (full_name) out.push({full_name, phone, member_number:member});
+    const row = classifyParts(parts);
+    if (row) out.push(row);
   }
   return out;
 }
+function decodeText(buf){
+  let text = new TextDecoder('utf-8').decode(buf);
+  if (text.includes('\ufffd')){
+    try{ text = new TextDecoder('windows-1251').decode(buf); }catch(e){}
+  }
+  return text.replace(/^\ufeff/, '');
+}
+function parseCSV(text){
+  text = String(text||'').replace(/^\ufeff/, '');
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (!lines.length) return [];
+  const delim = (lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length ? ';' : ',';
+  const rows = [];
+  let cur = '', row = [], inq = false;
+  for (let i=0;i<text.length;i++){
+    const c = text[i];
+    if (inq){ if (c==='"'){ if (text[i+1]==='"'){cur+='"';i++;} else inq=false; } else cur+=c; }
+    else {
+      if (c==='"') inq=true;
+      else if (c===delim){ row.push(cur); cur=''; }
+      else if (c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n')i++; row.push(cur); rows.push(row); row=[]; cur=''; }
+      else cur+=c;
+    }
+  }
+  if (cur!==''||row.length){ row.push(cur); rows.push(row); }
+  // заголовок?
+  let nameIdx = -1, phoneIdx = -1, memberIdx = -1;
+  const first = rows[0] ? rows[0].map(x=>String(x).trim().toLowerCase()) : [];
+  first.forEach((h,i)=>{
+    if (/(фио|фамил|имя|name)/.test(h)) nameIdx = i;
+    else if (/(тел|phone|моб)/.test(h)) phoneIdx = i;
+    else if (/(номер|number|№|табел|id)/.test(h)) memberIdx = i;
+  });
+  const out = [];
+  const start = nameIdx >= 0 ? 1 : 0;
+  for (let r=start;r<rows.length;r++){
+    const cells = rows[r].map(x=>String(x).trim());
+    if (!cells.length || cells.every(x=>!x)) continue;
+    if (nameIdx >= 0){
+      const full_name = normName(cells[nameIdx]||'');
+      if (!full_name) continue;
+      out.push({full_name, phone: phoneIdx>=0 ? (cells[phoneIdx]||null) : null, member_number: memberIdx>=0 ? (cells[memberIdx]||null) : null});
+    } else {
+      const parsed = classifyParts(cells.filter(Boolean));
+      if (parsed) out.push(parsed);
+    }
+  }
+  return out;
+}
+function dedupRows(rows){
+  const existingNames = new Set(people.map(p=>normKey(p.full_name)));
+  const existingMembers = new Set(people.filter(p=>p.member_number).map(p=>String(p.member_number).trim()));
+  const seenNames = new Set(), seenMembers = new Set();
+  const fresh = [];
+  let skipped = 0;
+  for (const r of rows){
+    const nk = normKey(r.full_name);
+    const mk = r.member_number ? String(r.member_number).trim() : null;
+    if (existingNames.has(nk) || seenNames.has(nk) || (mk && (existingMembers.has(mk) || seenMembers.has(mk)))){
+      skipped++; continue;
+    }
+    seenNames.add(nk); if (mk) seenMembers.add(mk);
+    fresh.push({full_name: normName(r.full_name), phone: r.phone||null, member_number: mk||null});
+  }
+  return {fresh, skipped};
+}
+async function insertPeople(rows){
+  // порциями по 100, при конфликте — поштучно, чтобы одна плохая строка не роняла весь импорт
+  let inserted = 0, failed = 0;
+  for (let i=0;i<rows.length;i+=100){
+    const chunk = rows.slice(i, i+100);
+    const { error } = await sb.from('people').insert(chunk);
+    if (!error){ inserted += chunk.length; continue; }
+    for (const r of chunk){
+      const { error: e2 } = await sb.from('people').insert(r);
+      if (e2) failed++; else inserted++;
+    }
+  }
+  return {inserted, failed};
+}
 function previewImport(){
   const rows = parsePeopleText($('#paste').value);
-  const existing = new Set(people.map(p=>p.full_name.toLowerCase()));
-  const newOnes = rows.filter(r=>!existing.has(r.full_name.toLowerCase()));
-  $('#prev').textContent = `Найдено строк: ${rows.length}\nНовых (не в списке): ${newOnes.length}\nПримеры:\n` +
-    newOnes.slice(0,8).map(r=>`• ${r.full_name}${r.phone?' | '+r.phone:''}${r.member_number?' | №'+r.member_number:''}`).join('\n');
+  const {fresh, skipped} = dedupRows(rows);
+  $('#prev').textContent = `Найдено строк: ${rows.length}\nНовых (не в списке): ${fresh.length}\nПропущено дублей: ${skipped}\nПримеры:\n` +
+    fresh.slice(0,8).map(r=>`• ${r.full_name}${r.phone?' | '+r.phone:''}${r.member_number?' | №'+r.member_number:''}`).join('\n');
 }
 async function doImport(){
   const rows = parsePeopleText($('#paste').value);
   if (!rows.length){ toast('Пусто'); return; }
-  const existing = new Set(people.map(p=>p.full_name.toLowerCase()));
-  const fresh = rows.filter(r=>!existing.has(r.full_name.toLowerCase()));
-  if (!fresh.length){ toast('Все уже в списке'); return; }
+  const {fresh, skipped} = dedupRows(rows);
+  if (!fresh.length){ toast(`Все уже в списке (дублей: ${skipped})`); return; }
   try{
-    const ins = fresh.map(r=>({full_name:r.full_name, phone:r.phone||null, member_number:r.member_number||null}));
-    const { error } = await sb.from('people').insert(ins);
-    if (error) throw error;
-    toast(`Добавлено ${fresh.length} чел.`);
+    const {inserted, failed} = await insertPeople(fresh);
+    toast(`Добавлено ${inserted} чел.${skipped?`, пропущено дублей: ${skipped}`:''}${failed?`, ошибок: ${failed}`:''}`);
     $('#paste').value=''; $('#prev').textContent='';
   }catch(e){ console.error(e); toast('Ошибка импорта: '+(e.message||e)); }
   await loadAll();
+}
+let xlsxPromise = null;
+function loadXLSX(){
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (xlsxPromise) return xlsxPromise;
+  xlsxPromise = new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = ()=> resolve(window.XLSX);
+    s.onerror = ()=> reject(new Error('Не удалось загрузить библиотеку Excel'));
+    document.head.appendChild(s);
+  });
+  return xlsxPromise;
 }
 async function importFile(e){
   const f = e.target.files[0]; if (!f) return;
   try{
     const buf = await f.arrayBuffer();
     let rows = [];
-    if (f.name.endsWith('.csv')){
-      const text = new TextDecoder('utf-8').decode(buf);
-      rows = parseCSV(text);
+    if (f.name.toLowerCase().endsWith('.csv')){
+      rows = parseCSV(decodeText(buf));
     } else {
+      const XLSX = await loadXLSX();
       const wb = XLSX.read(buf, {type:'array'});
       const ws = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-      rows = rows.map(r=>{
+      const raw = XLSX.utils.sheet_to_json(ws, {defval:''});
+      rows = raw.map(r=>{
         const obj = {};
         for (const k in r){
-          const key = k.toLowerCase();
-          if (/(фио|фамил|имя|name)/.test(key)) obj.full_name = String(r[k]).trim();
-          else if (/(тел|phone|моб)/.test(key)) obj.phone = String(r[k]).trim();
-          else if (/(номер|number|№|табел|id)/.test(key)) obj.member_number = String(r[k]).trim();
+          const key = String(k).toLowerCase();
+          if (/(фио|фамил|имя|name)/.test(key)) obj.full_name = normName(String(r[k]));
+          else if (/(тел|phone|моб)/.test(key)) obj.phone = String(r[k]).trim() || null;
+          else if (/(номер|number|№|табел|id)/.test(key)) obj.member_number = String(r[k]).trim() || null;
         }
         return obj;
       }).filter(r=>r.full_name);
     }
-    const existing = new Set(people.map(p=>p.full_name.toLowerCase()));
-    const fresh = rows.filter(r=>r.full_name && !existing.has(r.full_name.toLowerCase()));
-    if (!fresh.length){ toast('Нет новых строк'); return; }
-    const { error } = await sb.from('people').insert(fresh.map(r=>({full_name:r.full_name, phone:r.phone||null, member_number:r.member_number||null})));
-    if (error) throw error;
-    toast(`Импортировано ${fresh.length} чел.`);
+    const {fresh, skipped} = dedupRows(rows);
+    if (!fresh.length){ toast(`Нет новых строк (дублей: ${skipped})`); return; }
+    const {inserted, failed} = await insertPeople(fresh);
+    toast(`Импортировано ${inserted} чел.${skipped?`, пропущено дублей: ${skipped}`:''}${failed?`, ошибок: ${failed}`:''}`);
   }catch(err){ console.error(err); toast('Ошибка файла: '+(err.message||err)); }
+  e.target.value = '';
   await loadAll();
 }
-function parseCSV(text){
-  const rows = []; let cur = '', row = [], inq = false;
-  for (let i=0;i<text.length;i++){
-    const c = text[i];
-    if (inq){ if (c==='"'){ if (text[i+1]==='"'){cur+='"';i++;} else inq=false; } else cur+=c; }
-    else { if (c==='"') inq=true; else if (c===','){ row.push(cur); cur=''; } else if (c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n')i++; row.push(cur); rows.push(row); row=[]; cur=''; } else cur+=c; }
-  }
-  if (cur!==''||row.length){ row.push(cur); rows.push(row); }
-  const out = [];
-  for (const r of rows){
-    if (!r.length || r.every(x=>!x.trim())) continue;
-    const head = r.map(x=>x.trim().toLowerCase());
-    if (head.some(h=>/(фио|фамил|имя|name)/.test(h))){
-      // header row – map by index for subsequent data rows after this? simpler: skip and rely on positional
-      continue;
-    }
-    const name = r[0] ? r[0].trim() : '';
-    let phone=null, member=null;
-    for (let i=1;i<r.length;i++){ const v=r[i].trim(); if(/^\+?\d[\d\s\-()]{5,}$/.test(v)) phone=v; else if(/^\d{1,6}$/.test(v)) member=v; }
-    if (name) out.push({full_name:name, phone, member_number:member});
-  }
-  return out;
-}
 async function addPerson(){
-  const name = $('#an').value.trim(); if (!name){ toast('Введите ФИО'); return; }
+  const name = normName($('#an').value);
+  if (!name){ toast('Введите ФИО'); return; }
   const phone = $('#ap').value.trim()||null;
-  try{ const {error}=await sb.from('people').insert({full_name:name, phone}); if(error) throw error; toast('Добавлен(а)'); $('#an').value=''; $('#ap').value=''; }
-  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  if (people.some(p=>normKey(p.full_name)===normKey(name))){ toast('Такой человек уже есть в списке'); return; }
+  try{
+    const {error}=await sb.from('people').insert({full_name:name, phone});
+    if(error) throw error;
+    toast('Добавлен(а)'); $('#an').value=''; $('#ap').value='';
+  }catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
   await loadAll();
 }
 async function addGift(){
-  const name = $('#gn').value.trim(); const n = Math.max(1, parseInt($('#gc').value)||1);
+  const name = normName($('#gn').value);
+  const n = Math.min(500, Math.max(1, parseInt($('#gc').value)||1));
   if (!name){ toast('Введите название'); return; }
-  try{ const {error}=await sb.from('gifts').insert(Array.from({length:n},()=>({name}))); if(error) throw error; toast(`Добавлено ${n}× ${name}`); $('#gn').value=''; }
-  catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
+  try{
+    const {error}=await sb.from('gifts').insert(Array.from({length:n},()=>({name})));
+    if(error) throw error;
+    toast(`Добавлено ${n}× ${name}`); $('#gn').value='';
+  }catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
   await loadAll();
 }
 async function clearPeople(){
-  if (!confirm('Удалить всех, кто ещё НЕ получил подарок? Получившие останутся.')) return;
+  const n = people.filter(p=>!p.received).length;
+  if (!confirm(`Удалить всех, кто ещё НЕ получил подарок (${n} чел.)? Получившие останутся.`)) return;
   try{ const {error}=await sb.from('people').delete().eq('received',false); if(error) throw error; toast('Очищено'); }
   catch(e){ console.error(e); toast('Ошибка: '+(e.message||e)); }
   await loadAll();
@@ -515,31 +797,50 @@ function download(name, content, type){
   a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
 function exportBackup(){
-  const data = {exported_at:new Date().toISOString(), people, gifts, handouts};
+  const data = {version: 2, exported_at:new Date().toISOString(), people, gifts, handouts};
   download('razdadcha-backup-'+Date.now()+'.json', JSON.stringify(data,null,2), 'application/json');
+}
+function csvCell(v){
+  const s = String(v==null?'':v);
+  return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 }
 function exportHandoutsCSV(){
   const head = 'ФИО;Подарок;Когда;Кто выдал\n';
-  const body = handouts.map(h=>`${h.person_name};${h.gift_name};${h.created_at};${h.operator||''}`).join('\n');
-  download('log-vydachi-'+Date.now()+'.csv', head+body, 'text/csv;charset=utf-8');
+  const body = handouts.map(h=>[h.person_name, h.gift_name, h.created_at, h.operator||''].map(csvCell).join(';')).join('\n');
+  download('log-vydachi-'+Date.now()+'.csv', '\ufeff'+head+body, 'text/csv;charset=utf-8');
 }
 async function importBackup(e){
   const f = e.target.files[0]; if (!f) return;
+  e.target.value = '';
   try{
     const data = JSON.parse(await f.text());
-    if (data.people) await sb.from('people').insert(data.people.map(({id,...r})=>r));
-    if (data.gifts) await sb.from('gifts').insert(data.gifts.map(({id,...r})=>r));
-    if (data.handouts) await sb.from('handouts').insert(data.handouts.map(({id,...r})=>r));
-    toast('Бэкап восстановлен');
+    if (!Array.isArray(data.people) || !Array.isArray(data.gifts) || !Array.isArray(data.handouts)){
+      toast('Неверный формат бэкапа'); return;
+    }
+    if (!confirm(`ВНИМАНИЕ: восстановление ЗАМЕНИТ все текущие данные (${people.length} людей, ${gifts.length} подарков, ${handouts.length} выдач) данными из бэкапа от ${data.exported_at||'?'}. Продолжить?`)) return;
+    const r = await rpc('restore_backup', {p_people: data.people, p_gifts: data.gifts, p_handouts: data.handouts});
+    if (!r.ok) throw new Error(translateError(r.error||'restore_failed'));
+    toast(`Восстановлено: людей ${r.people}, подарков ${r.gifts}, выдач ${r.handouts}`);
   }catch(err){ console.error(err); toast('Ошибка восстановления: '+(err.message||err)); }
   await loadAll();
 }
 
-/* ---------- search bind ---------- */
+/* ---------- search bind (без перерендера инпута) ---------- */
 function bindSearch(){
   const inp = $('#q'); if (!inp) return;
-  inp.oninput = e => { searchQ = e.target.value; render(); const n=$('#q'); if(n) n.focus(); };
-  setTimeout(()=>inp.focus(), 50);
+  inp.oninput = e => {
+    searchQ = e.target.value;
+    const list = $('#list');
+    if (!list) return;
+    list.innerHTML = (tab === 'lyudi' ? renderLyudiList() : searchListHTML());
+    list.querySelectorAll('.row[data-pid]').forEach(r=>r.onclick=()=>openPerson(+r.dataset.pid));
+  };
+  const list = $('#list');
+  if (list) list.querySelectorAll('.row[data-pid]').forEach(r=>r.onclick=()=>openPerson(+r.dataset.pid));
+  // автофокус только на десктопе — на телефоне он дёргает клавиатуру
+  if (window.matchMedia && window.matchMedia('(hover: hover)').matches){
+    setTimeout(()=>{ try{ inp.focus(); }catch(e){} }, 50);
+  }
 }
 
 /* ---------- tabs ---------- */
@@ -548,12 +849,18 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   t.classList.add('active'); tab = t.dataset.tab; searchQ=''; render();
 });
 
+/* ---------- online/offline ---------- */
+window.addEventListener('online', ()=>{ updateConn(); processQueue(); loadAll(); });
+window.addEventListener('offline', ()=>{ updateConn(); });
+
 /* ---------- boot ---------- */
 (async function boot(){
-  if (!window.supabase){ document.getElementById('view').innerHTML='<div class="empty">Не удалось загрузить библиотеку Supabase (нужен интернет).</div>'; return; }
+  if (!sb){ document.getElementById('view').innerHTML='<div class="empty">Не удалось загрузить библиотеку Supabase (нужен интернет). Обновите страницу.</div>'; return; }
+  loadCache(); render(); // мгновенный показ кэша, потом свежие данные
   await loadAll();
   subscribe();
   setInterval(loadAll, 60000); // периодическая перепроверка на всякий случай
+  processQueue();
 })();
 </script>
 </body>
