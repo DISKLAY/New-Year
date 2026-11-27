@@ -56,6 +56,11 @@
   .gift.sel{border-color:var(--accent);background:var(--okbg)}
   .gift .gn{font-weight:600;font-size:15px}
   .gift .gc{font-size:13px;color:var(--muted);margin-top:4px}
+  .gift.valuable{border-color:#e0962b;background:#fffaf0}
+  .gift.valuable.sel{border-color:#b97a1a;background:#fdf2e0}
+  .gift .vb{font-size:11px;font-weight:800;color:#8a5a12;margin-top:4px}
+  .gsearch{width:100%;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:8px;outline:none}
+  .gsearch:focus{border-color:var(--accent)}
   /* buttons */
   .btn{display:block;width:100%;border:none;border-radius:14px;padding:16px;font-size:18px;font-weight:700;
     background:var(--accent);color:var(--accent-ink);cursor:pointer;box-shadow:var(--shadow)}
@@ -398,7 +403,8 @@ function renderPodarki(){
   const types = [...map.values()].sort((a,b)=> (b.avail>0?0:1)-(a.avail>0?0:1) || a.name.localeCompare(b.name,'ru'));
   let html = `<div class="hint">Подарки с привязкой к человеку (вычеркнутые — выданы)</div><div class="list">`;
   for (const t of types){
-    html += `<div class="row"><div class="name">${esc(t.name)}<div class="sub">осталось ${t.avail} из ${t.total}</div></div>`+
+    const val = isValuable(t.name);
+    html += `<div class="row"><div class="name">${esc(t.name)}${val?' <span class="badge" style="background:#fdf2e0;color:#8a5a12">⚠️ ЦЕННЫЙ</span>':''}<div class="sub">осталось ${t.avail} из ${t.total}</div></div>`+
             (t.avail>0?`<span class="badge b-no">${t.avail}</span>`:`<span class="badge b-given">нет</span>`)+`</div>`;
     for (const who of t.given) html += `<div class="row" style="padding-left:28px;box-shadow:none;background:#fafbfc"><div class="name struck" style="font-weight:500;font-size:15px">${esc(who)}</div></div>`;
   }
@@ -485,6 +491,39 @@ function renderImport(){
 }
 
 /* ---------- person modal ---------- */
+/* Ценные / одиночные подарки: требуют дополнительного подтверждения */
+const VALUABLE_GIFTS = new Set(['колонка алиса']);
+function isValuable(name){ return VALUABLE_GIFTS.has(String(name||'').trim().toLowerCase()); }
+function giftCardsHTML(query){
+  const q = String(query||'').trim().toLowerCase();
+  const types = giftTypes().filter(t => !q || t.name.toLowerCase().includes(q));
+  if (!giftTypes().length) return `<div class="empty">Нет доступных подарков</div>`;
+  if (!types.length) return `<div class="empty">Ничего не найдено по «${esc(query)}»</div>`;
+  return types.map(t=>{
+    const val = isValuable(t.name);
+    return `<div class="gift${selectedGift===t.name?' sel':''}${val?' valuable':''}" data-g="${esc(t.name)}">${esc(t.name)}<div class="gc">осталось ${t.avail}</div>${val?'<div class="vb">⚠️ ЦЕННЫЙ</div>':''}</div>`;
+  }).join('');
+}
+function bindGiftPicker(){
+  const inp = $('#gq');
+  const list = $('#glist');
+  if (!list) return;
+  const bindCards = ()=>{
+    list.querySelectorAll('.gift').forEach(c=>c.onclick=()=>{
+      selectedGift = c.dataset.g;
+      list.querySelectorAll('.gift').forEach(x=>x.classList.toggle('sel', x.dataset.g===selectedGift));
+      const btn = $('#give'); btn.disabled=false; btn.textContent='Выдать: '+selectedGift;
+    });
+  };
+  bindCards();
+  if (inp){
+    inp.oninput = e => {
+      // Обновляем только сетку, инпут не пересоздаём — текст не стирается
+      list.innerHTML = giftCardsHTML(e.target.value);
+      bindCards();
+    };
+  }
+}
 function openPerson(pid){
   const p = people.find(x=>x.id===pid); if(!p) return;
   selectedPersonId = pid; selectedGift = null;
@@ -497,14 +536,11 @@ function openPerson(pid){
       <div class="kv">Кто выдал: <b>${esc(h.operator||'—')}</b></div>
       <button class="btn warn mt" id="undo">Отменить выдачу</button>`;
   } else {
-    const types = giftTypes();
-    const cards = types.length ? types.map(t=>
-      `<div class="gift${selectedGift===t.name?' sel':''}" data-g="${esc(t.name)}">${esc(t.name)}<div class="gc">осталось ${t.avail}</div></div>`).join('')
-      : `<div class="empty">Нет доступных подарков</div>`;
     body = `<div class="banner ok">МОЖНО ВЫДАТЬ</div>
       <div class="kv">Выберите, что выдаёте:</div>
-      <div class="gifts">${cards}</div>
-      <button class="btn mt" id="give" disabled>${selectedGift?('Выдать: '+esc(selectedGift)):'Выберите подарок'}</button>`;
+      <input class="gsearch" id="gq" placeholder="Быстрый поиск подарка…" autocomplete="off" enterkeyhint="search">
+      <div class="gifts" id="glist">${giftCardsHTML('')}</div>
+      <button class="btn mt" id="give" disabled>Выберите подарок</button>`;
   }
   $('#modal').innerHTML = `<div class="overlay" id="ov"><div class="sheet" style="position:relative">
     <button class="close" id="x">×</button>
@@ -523,13 +559,18 @@ function openPerson(pid){
   $('#ov').onclick = e=>{ if(e.target.id==='ov') closeModal(); };
   if (p.received && h){ $('#undo').onclick = ()=>undoHandout(h.id); }
   else {
-    $('#modal').querySelectorAll('.gift').forEach(c=>c.onclick=()=>{
-      selectedGift = c.dataset.g;
-      $('#modal').querySelectorAll('.gift').forEach(x=>x.classList.toggle('sel', x.dataset.g===selectedGift));
-      const btn = $('#give'); btn.disabled=false; btn.textContent='Выдать: '+selectedGift;
-    });
+    bindGiftPicker();
     const give = $('#give');
-    if (give) give.onclick = ()=> selectedGift && giveGift(p, selectedGift);
+    if (give) give.onclick = ()=>{
+      if (!selectedGift) return;
+      if (isValuable(selectedGift)){
+        const t = giftTypes().find(x=>x.name===selectedGift);
+        const left = t ? t.avail : '?';
+        if (!confirm(`⚠️ ЦЕННЫЙ ПОДАРОК\n\nВыдать «${selectedGift}» человеку ${p.full_name}?\nОсталось: ${left} шт. (одиночный экземпляр — повторная выдача заблокирована в базе).\n\nПродолжить?`)) return;
+        if (!navigator.onLine && !confirm('Вы ОФФЛАЙН. Выдача встанет в очередь и может не отправиться, если другой волонтёр уже выдал этот подарок.\n\nПродолжить в очередь?')) return;
+      }
+      giveGift(p, selectedGift);
+    };
   }
   $('#savep').onclick = ()=>savePerson(pid);
 }
